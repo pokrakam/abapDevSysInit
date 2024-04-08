@@ -1,16 +1,20 @@
 # abapDevSysInit
-ABAP Development System Configurator
+ABAP Development System Configurator. 
+Work in progress, expect bugs and changes, may break stuff, use at own risk.
 
 # Purpose
 To automate the repetitive tasks in setting up and personalizing a new 
 ABAP Developer Edition or Trial system.
 
 Preconfigured setups that can be automated: 
-- Installing abapGit (Standalone edition)
-- Installing GitHub SSL certificate (thanks to @sandraros and @mbtools)
 - Setting up RFC Destination with GitHub Personal Access Token
-- Creating abapGit User Exit to log into GitHub with token
-- Pulling a list of repos
+- Installing GitHub SSL certificate (thanks to @sandraros and @mbtools)
+- Pulling a list of repos (requires abapGit full version)
+Next:
+- Installing abapGit standalone edition
+Todo:
+- Bootstrap abapGit full version
+- Create abapGit User Exit to log into GitHub with token
 - ...more to come
 
 # Usage
