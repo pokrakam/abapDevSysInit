@@ -10,8 +10,11 @@ Preconfigured setups that can be automated:
 - Setting up RFC Destination with GitHub Personal Access Token
 - Installing GitHub SSL certificate (thanks to @sandraros and @mbtools)
 - Pulling a list of repos (requires abapGit full version)
+
+
 Next:
 - Installing abapGit standalone edition
+
 Todo:
 - Bootstrap abapGit full version
 - Create abapGit User Exit to log into GitHub with token
