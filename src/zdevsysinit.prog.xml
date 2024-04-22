@@ -5,7 +5,6 @@
    <PROGDIR>
     <NAME>ZDEVSYSINIT</NAME>
     <DBAPL>S</DBAPL>
-    <DBNA>D$</DBNA>
     <SUBC>1</SUBC>
     <FIXPT>X</FIXPT>
     <LDBNAME>D$S</LDBNAME>
@@ -14,8 +13,8 @@
    <TPOOL>
     <item>
      <ID>R</ID>
-     <ENTRY>Developer System Configurator</ENTRY>
-     <LENGTH>29</LENGTH>
+     <ENTRY>Setup Dev system</ENTRY>
+     <LENGTH>16</LENGTH>
     </item>
    </TPOOL>
   </asx:values>

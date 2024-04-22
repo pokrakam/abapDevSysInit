@@ -12,6 +12,7 @@ PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 
 DATA out TYPE REF TO if_demo_output.
 
+
 *--------------------------------------------------------------------*
 CLASS lcx_error DEFINITION INHERITING FROM cx_static_check.
 ENDCLASS.
@@ -97,6 +98,7 @@ CLASS rfc_destination IMPLEMENTATION.
         destination_is_locked      = 10
         invalid_parameter          = 11
         OTHERS                     = 12.
+
     IF sy-subrc <> 0.
       MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
         WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
@@ -150,15 +152,78 @@ CLASS repo DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
-    METHODS setup IMPORTING i_name    TYPE string
-                            i_package TYPE devclass
-                            i_url     TYPE string
-                            i_reset   TYPE abap_bool DEFAULT abap_false.
-    METHODS constructor RAISING zcx_abapgit_exception.
+    METHODS execute IMPORTING i_name    TYPE string
+                              i_package TYPE devclass
+                              i_url     TYPE string
+                              i_reset   TYPE abap_bool DEFAULT abap_false.
+    METHODS constructor RAISING lcx_error.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    DATA repos TYPE zif_abapgit_persistence=>ty_repos.
+
+    TYPES ty_value TYPE c LENGTH 12.
+    TYPES ty_sha1    TYPE c LENGTH 40 .
+
+    TYPES ty_languages TYPE STANDARD TABLE OF laiso WITH DEFAULT KEY.
+    TYPES:
+      BEGIN OF ty_requirement,
+        component   TYPE tdevc-dlvunit,
+        min_release TYPE saprelease,
+        min_patch   TYPE sappatchlv,
+      END OF ty_requirement .
+
+    TYPES ty_requirement_tt TYPE STANDARD TABLE OF ty_requirement WITH DEFAULT KEY .
+
+    TYPES:
+      BEGIN OF ty_dot_abapgit,
+        master_language       TYPE spras,
+        i18n_languages        TYPE ty_languages,
+        use_lxe               TYPE abap_bool,
+        starting_folder       TYPE string,
+        folder_logic          TYPE string,
+        ignore                TYPE STANDARD TABLE OF string WITH DEFAULT KEY,
+        requirements          TYPE ty_requirement_tt,
+        version_constant      TYPE string,
+        abap_language_version TYPE string,
+      END OF ty_dot_abapgit .
+
+    TYPES:
+      BEGIN OF ty_local_settings,
+        display_name                 TYPE string,
+        ignore_subpackages           TYPE abap_bool,
+        write_protected              TYPE abap_bool,
+        only_local_objects           TYPE abap_bool,
+        code_inspector_check_variant TYPE sci_chkv,
+        block_commit                 TYPE abap_bool,
+        main_language_only           TYPE abap_bool,
+        labels                       TYPE string,
+        transport_request            TYPE trkorr,
+        customizing_request          TYPE trkorr,
+      END OF ty_local_settings.
+
+    TYPES: BEGIN OF ty_repo_xml,
+             url             TYPE string,
+             branch_name     TYPE string,
+             selected_commit TYPE ty_sha1,
+             package         TYPE devclass,
+             created_by      TYPE syuname,
+             created_at      TYPE timestampl,
+             deserialized_by TYPE syuname,
+             deserialized_at TYPE timestampl,
+             offline         TYPE abap_bool,
+             switched_origin TYPE string,
+             dot_abapgit     TYPE ty_dot_abapgit,
+             head_branch     TYPE string,   " HEAD symref of the repo, master branch
+             local_settings  TYPE ty_local_settings,
+           END OF ty_repo_xml.
+
+    TYPES: BEGIN OF ty_repo,
+             key TYPE ty_value.
+             INCLUDE TYPE ty_repo_xml.
+    TYPES: END OF ty_repo.
+    TYPES: ty_repos TYPE STANDARD TABLE OF ty_repo WITH DEFAULT KEY.
+
+    DATA repos TYPE ty_repos.
 
 ENDCLASS.
 
@@ -168,36 +233,75 @@ CLASS repo IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD constructor.
-    repos = zcl_abapgit_persist_factory=>get_repo( )->list( ).
+
+    DATA repo TYPE REF TO object.
+
+    TRY.
+        CALL METHOD ('ZCL_ABAPGIT_PERSIST_FACTORY')=>get_repo RECEIVING ri_repo = repo.
+        CALL METHOD repo->('LIST') RECEIVING rt_repos = repos.
+
+      CATCH cx_sy_dyn_call_illegal_class.
+        out->write( `Cannot pull repos, requires abapGit developer version` ).
+        RAISE EXCEPTION TYPE lcx_error.
+    ENDTRY.
+
   ENDMETHOD.
 
-  METHOD setup.
-    DATA: repo TYPE REF TO zcl_abapgit_repo_online.
+
+  METHOD execute.
+
+    DATA repo TYPE REF TO object. "zcl_abapgit_repo_online
+    DATA repo_srv TYPE REF TO object. "zif_abapgit_repo_srv
+    DATA log TYPE REF TO object. "zif_abapgit_log
+    DATA background TYPE REF TO object. "zif_abapgit_background
 
     LOOP AT repos INTO DATA(repo_data) WHERE package = i_package.
       out->write( |Package { i_package } already used in repo { repo_data-local_settings-display_name }| ).
       RETURN.
     ENDLOOP.
 
-    DATA(repo_srv) = zcl_abapgit_repo_srv=>get_instance( ).
+    CONSTANTS zcl_abapgit_repo_srv TYPE classname VALUE 'ZCL_ABAPGIT_REPO_SRV'.
+
+    CALL METHOD (zcl_abapgit_repo_srv)=>get_instance RECEIVING ri_srv = repo_srv.
+
     TRY.
-        repo = CAST #( repo_srv->new_online(
-          iv_url          = i_url
-          iv_package      = i_package
-          iv_display_name = i_name ) ).
+
+        CALL METHOD repo_srv->(`NEW_ONLINE`)
+          EXPORTING
+            iv_url          = i_url
+            iv_package      = i_package
+            iv_display_name = i_name
+          RECEIVING
+            ro_repo         = repo.
+
         out->write( |Repo { i_name } created| ).
 
-        DATA(log) = CAST zif_abapgit_log( NEW zcl_abapgit_log( ) ).
-        DATA(background) = CAST zif_abapgit_background( NEW zcl_abapgit_background_pull( ) ).
+        CREATE OBJECT log TYPE (`ZCL_ABAPGIT_LOG`).
 
-        background->run(
-          io_repo     = repo
-          ii_log      = log
-          it_settings = VALUE #( ) ).
+        CREATE OBJECT background TYPE (`ZCL_ABAPGIT_BACKGROUND_PULL`).
 
-        out->write( log->get_messages( ) ).
+        CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
+          EXPORTING
+            io_repo = repo
+            ii_log  = log.
 
-      CATCH zcx_abapgit_exception INTO DATA(error).
+        TYPES:
+          BEGIN OF ty_log_out,
+            type      TYPE symsgty,
+            text      TYPE string,
+            obj_type  TYPE trobjtype,
+            obj_name  TYPE sobj_name,
+            exception TYPE REF TO cx_root,
+          END OF ty_log_out .
+        TYPES:
+          tty_log_out TYPE STANDARD TABLE OF ty_log_out
+                      WITH NON-UNIQUE DEFAULT KEY .
+        DATA messages TYPE tty_log_out.
+
+        CALL METHOD log->(`GET_MESSAGES`) RECEIVING rt_msg = messages.
+        out->write( messages ).
+
+      CATCH cx_static_check INTO DATA(error).  "zcx_abapgit_exception
         out->write( |Create repo { i_name } failed: { error->get_text( ) }| ).
     ENDTRY.
 
@@ -212,9 +316,13 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
 
   PUBLIC SECTION.
     METHODS execute RAISING lcx_error.
+
   PROTECTED SECTION.
+
     TYPES t_source_lines TYPE STANDARD TABLE OF abaptxt255 WITH EMPTY KEY.
+
     DATA url TYPE string VALUE `https://raw.githubusercontent.com/abapGit/build/main/zabapgit_standalone.prog.abap`.
+
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
     METHODS insert_report IMPORTING source_lines TYPE t_source_lines
@@ -304,23 +412,11 @@ CLASS ag_standalone IMPLEMENTATION.
 
     CALL FUNCTION 'RPY_PROGRAM_INSERT'
       EXPORTING
-*       application       = 'X'
-*       authorization_group = space
         development_class = '$TMP'
-*       edit_lock         = space
-*       log_db            = space
         program_name      = 'ZABAPGIT_STANDALONE'
-*       program_type      = '1'
-*       r2_flag           = space
-*       temporary         = space
         title_string      = 'abapGit Standalone'
-*       transport_number  = space
-*       save_inactive     = space
         suppress_dialog   = abap_true
-*       status            = space
-*       uccheck           = 'X'
       TABLES
-*       source            =
         source_extended   = source_lines
       EXCEPTIONS
         already_exists    = 1
@@ -380,6 +476,7 @@ CLASS ltc_ag_standalone IMPLEMENTATION.
   METHOD class_setup.
     out = cl_demo_output=>new( ).
   ENDMETHOD.
+
 
   METHOD setup.
     url = `https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/LICENSE`.
@@ -1537,8 +1634,7 @@ CLASS sslcert DEFINITION.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-*    CONSTANTS host TYPE string VALUE `github.com`.
-    DATA: strust TYPE REF TO zcl_certi_strust.
+    DATA strust TYPE REF TO zcl_certi_strust.
 
 ENDCLASS.
 
@@ -1742,6 +1838,8 @@ CLASS main IMPLEMENTATION.
       import_repos( ).
     ENDIF.
 
+    out->write( `Done.` ).
+
   ENDMETHOD.
 
 
@@ -1749,13 +1847,14 @@ CLASS main IMPLEMENTATION.
 
     TRY.
         DATA(repo_importer) = NEW repo( ).
-      CATCH zcx_abapgit_exception INTO DATA(error).
+      CATCH lcx_error INTO DATA(error).
         out->write( |Could not get list of repos: { error->get_text( ) }| ).
+        RETURN.
     ENDTRY.
 
     LOOP AT repos REFERENCE INTO DATA(repo).
 
-      repo_importer->setup(
+      repo_importer->execute(
         i_name    = repo->name
         i_package = repo->package
         i_url     = repo->url ).
