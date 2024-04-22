@@ -1571,9 +1571,6 @@ CLASS sslcert IMPLEMENTATION.
     " HTTPS GET
     "===================================
     DATA http_client TYPE REF TO if_http_client.
-*  cl_http_client=>create_by_destination( EXPORTING  destination = 'RFC_DESTINATION'
-*                                         IMPORTING  client      = lo_http_client
-*                                         EXCEPTIONS OTHERS      = 1 ).
     cl_http_client=>create_by_url( EXPORTING  url    = `https://` && host
                                    IMPORTING  client = http_client
                                    EXCEPTIONS OTHERS = 1 ).
@@ -1674,6 +1671,8 @@ CLASS main DEFINITION CREATE PUBLIC.
     DATA repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
     DATA user  TYPE rfcalias.
     DATA token TYPE rfcexec_ext.
+    DATA sslhosts TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+
     METHODS import_repos.
 
 ENDCLASS.
@@ -1695,6 +1694,11 @@ CLASS main IMPLEMENTATION.
         ( name = `` package = '' url = `` )
      ).
 
+    sslhosts = VALUE #(
+        ( `github.com` )
+        ( `github.io` )
+    ).
+
     INCLUDE zdevsysinit_params IF FOUND.
 
   ENDMETHOD.
@@ -1703,27 +1707,34 @@ CLASS main IMPLEMENTATION.
   METHOD run.
 
     IF p_rfcdst = abap_true.
+
       out->write( `Creating RFC Destination` ).
       NEW rfc_destination( )->execute(
         i_name  = 'GITHUB'
         i_user  = user
         i_token = token ).
+
     ENDIF.
 
     IF p_certi = abap_true.
+
       out->write( `Creating Certificates` ).
       DATA(cert) = NEW sslcert( ).
-      cert->execute( `github.com` ).
-      cert->execute( `github.io` ).
+      LOOP AT sslhosts INTO DATA(host).
+        cert->execute( host ).
+      ENDLOOP.
+
     ENDIF.
 
     IF p_abapgt = abap_true.
+
       out->write( `Creating abapGit` ).
       TRY.
           NEW ag_standalone( )->execute( ).
         CATCH lcx_error.
           out->write( `Could not create ZABAPGIT_STANDALONE` ).
       ENDTRY.
+
     ENDIF.
 
     IF p_repos = abap_true.
