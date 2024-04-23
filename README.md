@@ -21,12 +21,13 @@ The design is to have everything in one report for ease of installing by copy/pa
 as abapGit may not be available. Configuration is also done by copy/paste and editing 
 an ABAP include.
 
-Pull with abapGit if installed, else just copy/paste `ZDEVSYSINIT` into a Z-report.
+Pull with abapGit if installed, else just create report `zdevsysinit` and copy/paste 
+the source from [zdevsysinit.prog.abap](https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/src/zdevsysinit.prog.abap).
 
 If you don't intend to push/pull updates, edit parameters in `main->constructor`. 
 Otherwise, create include `zdevsysinit_params` outside the package, and copy the 
-initialization parameter section from `main->constructor` and populate with 
-appropriate values.
+initialization parameter examples from [zdevsysinit_sample.abap](https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/zdevsysinit_sample.abap) 
+and update with appropriate values.
 
 Do not put `zdevsysinit_params` in the same package as this may include personal 
 information that should not be published on GitHub. Instead, save a copy on your 
