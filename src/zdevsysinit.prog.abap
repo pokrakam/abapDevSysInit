@@ -1852,6 +1852,8 @@ CLASS main DEFINITION CREATE PUBLIC.
   PUBLIC SECTION.
     METHODS run.
     METHODS constructor.
+    METHODS get_github_user RETURNING VALUE(result) TYPE rfcalias.
+
   PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES: BEGIN OF t_repo,
@@ -1877,15 +1879,22 @@ CLASS main IMPLEMENTATION.
 
   METHOD constructor.
 
-    github_user = p_ghuser.
-    github_token = p_token.
-
     "Customize setup here, or copy/paste into include zdevsysinit_params
     "Create include outside package (e.g. $tmp) if it should not go to GitHub
     "Remember to back it up locally!
-    repos = VALUE #(
-        ( name = `` package = '' url = `` )
-     ).
+
+    " Template:
+*    repos = VALUE #(
+*        ( name = `` package = '' url = `` )
+*     ).
+
+*    profile = VALUE #(
+*        firstname = ''
+*        lastname = ''
+*        email = ''
+*        date_format = user_profile=>c_date_format-dmy_dot
+*        decimal_format = user_profile=>c_decimal_format-point
+*    ).
 
     sslhosts = VALUE #(
         ( `github.com` )
@@ -1893,6 +1902,14 @@ CLASS main IMPLEMENTATION.
     ).
 
     INCLUDE zdevsysinit_params IF FOUND.
+
+    IF p_ghuser IS NOT INITIAL.
+      github_user = p_ghuser.
+    ENDIF.
+
+    IF p_token IS NOT INITIAL.
+      github_token = p_token.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -1970,6 +1987,10 @@ CLASS main IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD get_github_user.
+    result = me->github_user.
+  ENDMETHOD.
+
 ENDCLASS.
 
 
@@ -1982,6 +2003,7 @@ INITIALIZATION.
 
   IF NOT rfc_destination=>exists( 'GITHUB' ).
     p_rfcdst = abap_true.
+    p_ghuser = NEW main( )->get_github_user( ).
   ENDIF.
 
   IF NOT NEW sslcert( )->exists( `github.com` ).

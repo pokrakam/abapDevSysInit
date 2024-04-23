@@ -16,6 +16,42 @@
      <ENTRY>Setup Dev system</ENTRY>
      <LENGTH>16</LENGTH>
     </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_ABAPGT</KEY>
+     <ENTRY>Get abapGit Standalone</ENTRY>
+     <LENGTH>30</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_CERTI</KEY>
+     <ENTRY>Install SSL Certificates</ENTRY>
+     <LENGTH>32</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_GHUSER</KEY>
+     <ENTRY>GitHub User</ENTRY>
+     <LENGTH>19</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_REPOS</KEY>
+     <ENTRY>Pull Repos</ENTRY>
+     <LENGTH>18</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RFCDST</KEY>
+     <ENTRY>Set up GitHub RFC Destination</ENTRY>
+     <LENGTH>37</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_TOKEN</KEY>
+     <ENTRY>GitHub Token</ENTRY>
+     <LENGTH>21</LENGTH>
+    </item>
    </TPOOL>
   </asx:values>
  </asx:abap>
