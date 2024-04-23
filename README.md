@@ -9,20 +9,17 @@ ABAP Developer Edition or Trial system.
 Setups and actions that can be configured: 
 - Set up RFC Destination with GitHub Personal Access Token
 - Install GitHub SSL certificate (thanks to @sandraros and @mbtools)
-- Pull a list of repos (requires abapGit full version)
 - Install abapGit standalone edition
+- Customize user profile (Name, localization, email address)
+- Pull a list of repos (requires abapGit full version)
 
-Next:
-- Create abapGit User Exit to log into GitHub with token
-
-Todo:
-- Set login user name
-- Configure abapGit user name
-- Downport
-- Bootstrap abapGit full version
-- ...more to come (ideas welcome)
+See projects page to see what's planned
 
 # Usage
+
+The design is to have everything in one report for ease of installing by copy/paste
+as abapGit may not be available. Configuration is also done by copy/paste and editing 
+an ABAP include.
 
 Pull with abapGit if installed, else just copy/paste `ZDEVSYSINIT` into a Z-report.
 
