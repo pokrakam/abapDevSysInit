@@ -2010,25 +2010,85 @@ ENDCLASS.
 
 
 *--------------------------------------------------------------------*
+CLASS initialization DEFINITION CREATE PUBLIC.
+*--------------------------------------------------------------------*
+
+  PUBLIC SECTION.
+    METHODS propose_parameters.
+    METHODS check_and_update_texts.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+    METHODS insert_selection_texts.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS initialization IMPLEMENTATION.
+*--------------------------------------------------------------------*
+
+  METHOD propose_parameters.
+    IF NOT rfc_destination=>exists( 'GITHUB' ).
+      p_rfcdst = abap_true.
+      p_ghuser = NEW main( )->get_github_user( ).
+    ENDIF.
+
+    IF NOT NEW sslcert( )->exists( `github.com` ).
+      p_certi = abap_true.
+    ENDIF.
+
+    SELECT SINGLE progname FROM reposrc INTO @DATA(dummy)
+          WHERE progname = 'ZABAPGIT_STANDALONE'.
+    p_abapgt = boolc( sy-subrc <> 0 ).
+
+  ENDMETHOD.
+
+
+  METHOD check_and_update_texts.
+
+    DATA texts TYPE STANDARD TABLE OF textpool.
+
+    READ TEXTPOOL sy-repid INTO texts.
+
+    READ TABLE texts WITH KEY id = 'S' TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      insert_selection_texts( ).
+      MESSAGE 'Texts updated, please restart program.' TYPE 'W' DISPLAY LIKE 'W'.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD insert_selection_texts.
+
+    DATA texts TYPE STANDARD TABLE OF textpool.
+
+    texts = VALUE #(
+      ( id = 'R' entry = 'Setup Dev system' length = '16' )
+      ( id = 'S' key = 'P_ABAPGT'  entry = '        Get abapGit Standalone'        length = '30' )
+      ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'      length = '32' )
+      ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
+      ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos'                    length = '18' )
+      ( id = 'S' key = 'P_RFCDST'  entry = '        Set up GitHub RFC Destination' length = '37' )
+      ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                  length = '21' )
+    ).
+
+    INSERT TEXTPOOL sy-repid FROM texts.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
 INITIALIZATION.
 *--------------------------------------------------------------------*
-  DATA dummy TYPE string.
 
   out = cl_demo_output=>new( ).
 
-  IF NOT rfc_destination=>exists( 'GITHUB' ).
-    p_rfcdst = abap_true.
-    p_ghuser = NEW main( )->get_github_user( ).
-  ENDIF.
-
-  IF NOT NEW sslcert( )->exists( `github.com` ).
-    p_certi = abap_true.
-  ENDIF.
-
-  SELECT SINGLE progname FROM reposrc INTO dummy
-        WHERE progname = 'ZABAPGIT_STANDALONE'.
-  p_abapgt = boolc( sy-subrc <> 0 ).
-
+  DATA(init) = NEW initialization( ).
+  init->check_and_update_texts( ).
+  init->propose_parameters( ).
 
 *--------------------------------------------------------------------*
 START-OF-SELECTION.
