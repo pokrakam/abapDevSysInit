@@ -425,7 +425,20 @@ CLASS ag_standalone IMPLEMENTATION.
         permission_error  = 4
         OTHERS            = 5.
 
-    fail_on_nonzero_subrc( `Failed to create ZABAPGIT_STANDALONE` ).
+    IF sy-subrc = 1.
+      CALL FUNCTION 'RPY_PROGRAM_UPDATE'
+        EXPORTING
+          program_name     = 'ZABAPGIT_STANDALONE'
+        TABLES
+          source_extended  = source_lines
+        EXCEPTIONS
+          cancelled        = 1
+          permission_error = 2
+          not_found        = 3
+          OTHERS           = 4.
+    ENDIF.
+
+    fail_on_nonzero_subrc( |Failed to create ZABAPGIT_STANDALONE, subrc { sy-subrc }| ).
 
   ENDMETHOD.
 
@@ -1916,6 +1929,8 @@ CLASS main IMPLEMENTATION.
 
   METHOD run.
 
+    out->write( `Starting system configuration` ).
+
     IF p_rfcdst = abap_true.
 
       out->write( `Creating RFC Destination` ).
@@ -1988,7 +2003,7 @@ CLASS main IMPLEMENTATION.
 
 
   METHOD get_github_user.
-    result = me->github_user.
+    result = github_user.
   ENDMETHOD.
 
 ENDCLASS.
