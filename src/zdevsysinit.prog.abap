@@ -3,7 +3,7 @@ REPORT zdevsysinit.
 * Todo: ability to reset/re-run some items
 *PARAMETERS p_reset TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 
-PARAMETERS p_user TYPE rfcalias.
+PARAMETERS p_ghuser TYPE rfcalias.
 PARAMETERS p_token TYPE rfcexec_ext.
 PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
@@ -1750,6 +1750,102 @@ ENDCLASS.
 
 
 *--------------------------------------------------------------------*
+CLASS user_profile DEFINITION CREATE PUBLIC.
+*--------------------------------------------------------------------*
+
+  PUBLIC SECTION.
+
+
+
+    CONSTANTS: BEGIN OF c_date_format,
+                 dmy_dot   TYPE xudatfm VALUE '1',
+                 mdy_slash TYPE xudatfm VALUE '2',
+                 mdy_dash  TYPE xudatfm VALUE '3',
+                 ymd_dot   TYPE xudatfm VALUE '4',
+                 ymd_slash TYPE xudatfm VALUE '5',
+                 ymd_dash  TYPE xudatfm VALUE '6',
+               END OF c_date_format.
+
+    CONSTANTS: BEGIN OF c_decimal_format,
+                 comma             TYPE xudcpfm VALUE space,
+                 comma_with_spaces TYPE xudcpfm VALUE 'Y',
+                 point             TYPE xudcpfm VALUE 'X',
+               END OF c_decimal_format.
+
+    TYPES:BEGIN OF t_profile,
+            username       TYPE xubname,
+            firstname      TYPE ad_namefir,
+            lastname       TYPE ad_namelas,
+            email          TYPE ad_smtpadr,
+            date_format    TYPE xudatfm,
+            decimal_format TYPE xudcpfm,
+          END OF t_profile.
+
+    METHODS execute IMPORTING profile TYPE t_profile
+                    RAISING   lcx_error.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS user_profile IMPLEMENTATION.
+*--------------------------------------------------------------------*
+
+  METHOD execute.
+
+    DATA: address   TYPE bapiaddr3,
+          addressx  TYPE bapiaddr3x,
+          return    TYPE STANDARD TABLE OF bapiret2,
+          defaults  TYPE bapidefaul,
+          defaultsx TYPE bapidefax,
+          addsmtp   TYPE STANDARD TABLE OF bapiadsmtp.
+
+    defaults-datfm  = profile-date_format.
+    defaultsx-datfm = profile-date_format.
+
+    defaults-dcpfm  = profile-decimal_format.
+    defaultsx-dcpfm = profile-date_format.
+
+    address-firstname  = profile-firstname.
+    address-lastname   = profile-lastname.
+    addressx-firstname = abap_true.
+    addressx-lastname  = abap_true.
+    address-e_mail = profile-email.
+    addressx-e_mail = 'X'.
+
+*    IF profile-email IS NOT INITIAL.
+*      APPEND VALUE #( std_no = 'X' e_mail = profile-email ) TO addsmtp.
+*    ENDIF.
+
+    CALL FUNCTION 'BAPI_USER_CHANGE'
+      EXPORTING
+        username  = profile-username
+*       logondata =
+*       logondatax         =
+        defaults  = defaults
+        defaultsx = defaultsx
+        address   = address
+        addressx  = addressx
+      TABLES
+*       parameter =
+        return    = return
+        addsmtp   = addsmtp.
+
+    LOOP AT return INTO DATA(msg) WHERE type CA 'AEX'.
+      out->write( msg-message ).
+      RAISE EXCEPTION TYPE lcx_error.
+    ENDLOOP.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+*--------------------------------------------------------------------*
 CLASS main DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
@@ -1765,9 +1861,10 @@ CLASS main DEFINITION CREATE PUBLIC.
            END OF t_repo.
 
     DATA repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
-    DATA user  TYPE rfcalias.
-    DATA token TYPE rfcexec_ext.
+    DATA github_user  TYPE rfcalias.
+    DATA github_token TYPE rfcexec_ext.
     DATA sslhosts TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+    DATA profile TYPE user_profile=>t_profile.
 
     METHODS import_repos.
 
@@ -1780,8 +1877,8 @@ CLASS main IMPLEMENTATION.
 
   METHOD constructor.
 
-    user = p_user.
-    token = p_token.
+    github_user = p_ghuser.
+    github_token = p_token.
 
     "Customize setup here, or copy/paste into include zdevsysinit_params
     "Create include outside package (e.g. $tmp) if it should not go to GitHub
@@ -1807,8 +1904,8 @@ CLASS main IMPLEMENTATION.
       out->write( `Creating RFC Destination` ).
       NEW rfc_destination( )->execute(
         i_name  = 'GITHUB'
-        i_user  = user
-        i_token = token ).
+        i_user  = github_user
+        i_token = github_token ).
 
     ENDIF.
 
@@ -1838,6 +1935,15 @@ CLASS main IMPLEMENTATION.
       import_repos( ).
     ENDIF.
 
+    IF profile IS NOT INITIAL.
+      TRY.
+          NEW user_profile( )->execute( profile ).
+          out->write( `User profile updated` ).
+        CATCH lcx_error.
+          out->write( `Error updating user profile` ).
+      ENDTRY.
+    ENDIF.
+
     out->write( `Done.` ).
 
   ENDMETHOD.
@@ -1860,7 +1966,6 @@ CLASS main IMPLEMENTATION.
         i_url     = repo->url ).
 
     ENDLOOP.
-
 
   ENDMETHOD.
 
