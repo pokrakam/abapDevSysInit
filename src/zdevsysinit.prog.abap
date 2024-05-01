@@ -8,10 +8,10 @@ PARAMETERS p_token TYPE rfcexec_ext.
 PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_abapgt TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
-PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
+PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 
-DATA out TYPE REF TO if_demo_output.
-
+CLASS output DEFINITION DEFERRED.
+DATA out TYPE REF TO output.
 
 *--------------------------------------------------------------------*
 CLASS lcx_error DEFINITION INHERITING FROM cx_static_check.
@@ -20,10 +20,54 @@ ENDCLASS.
 
 
 *--------------------------------------------------------------------*
+"! Singleton wrapper for {@link cl_demo_ouptut}
+CLASS output DEFINITION CREATE PUBLIC.
+*--------------------------------------------------------------------*
+
+  PUBLIC SECTION.
+
+    CLASS-METHODS get_instance RETURNING VALUE(result) TYPE REF TO output.
+
+    METHODS write IMPORTING data TYPE any.
+    METHODS display IMPORTING data TYPE any OPTIONAL.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+    CLASS-DATA out TYPE REF TO if_demo_output.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS output IMPLEMENTATION.
+*--------------------------------------------------------------------*
+
+  METHOD write.
+    out->write( data ).
+  ENDMETHOD.
+
+  METHOD display.
+    out->display( data ).
+  ENDMETHOD.
+
+  METHOD get_instance.
+    IF out IS INITIAL.
+      out = cl_demo_output=>new( ).
+    ENDIF.
+    result = NEW output( ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
 CLASS rfc_destination DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
+
+    CLASS-METHODS class_constructor.
+
     CLASS-METHODS exists IMPORTING i_name        TYPE rfcdest
                          RETURNING VALUE(result) TYPE abap_bool.
 
@@ -40,6 +84,7 @@ CLASS rfc_destination DEFINITION CREATE PUBLIC.
 
   PRIVATE SECTION.
     DATA name TYPE rfcdest VALUE 'GITHUB' ##NO_TEXT.
+    CLASS-DATA out TYPE REF TO output.
 
 ENDCLASS.
 
@@ -47,6 +92,11 @@ ENDCLASS.
 *--------------------------------------------------------------------*
 CLASS rfc_destination IMPLEMENTATION.
 *--------------------------------------------------------------------*
+
+  METHOD class_constructor.
+    out = output=>get_instance( ).
+  ENDMETHOD.
+
 
   METHOD execute.
 
@@ -152,14 +202,19 @@ CLASS repo DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
+
+    METHODS constructor.
+
     METHODS execute IMPORTING i_name    TYPE string
                               i_package TYPE devclass
                               i_url     TYPE string
-                              i_reset   TYPE abap_bool DEFAULT abap_false.
-    METHODS constructor RAISING lcx_error.
+                              i_reset   TYPE abap_bool DEFAULT abap_false
+                    RAISING
+                              lcx_error.
 
   PROTECTED SECTION.
-  PRIVATE SECTION.
+    DATA abapgit_standalone TYPE syrepid VALUE 'ZABAPGIT_STANDALONE'.
+
 
     TYPES ty_value TYPE c LENGTH 12.
     TYPES ty_sha1    TYPE c LENGTH 40 .
@@ -223,7 +278,16 @@ CLASS repo DEFINITION CREATE PUBLIC.
     TYPES: END OF ty_repo.
     TYPES: ty_repos TYPE STANDARD TABLE OF ty_repo WITH DEFAULT KEY.
 
-    DATA repos TYPE ty_repos.
+    DATA repos TYPE REF TO data. "ty_repos.
+    DATA out TYPE REF TO output.
+
+    METHODS get_repos RETURNING VALUE(result) TYPE REF TO data
+                      RAISING   lcx_error.
+
+  PRIVATE SECTION.
+    METHODS check_package_conflict IMPORTING package       TYPE devclass
+                                   RETURNING VALUE(result) TYPE abap_bool
+                                   RAISING   lcx_error.
 
 ENDCLASS.
 
@@ -232,18 +296,37 @@ ENDCLASS.
 CLASS repo IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
-  METHOD constructor.
+  METHOD get_repos.
 
+*    DATA repo TYPE REF TO ('\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZIF_ABAPGIT_PERSIST_REPO').
     DATA repo TYPE REF TO object.
 
-    TRY.
-        CALL METHOD ('ZCL_ABAPGIT_PERSIST_FACTORY')=>get_repo RECEIVING ri_repo = repo.
-        CALL METHOD repo->('LIST') RECEIVING rt_repos = repos.
+    DATA(type_name) =
+        |\\PROGRAM={ abapgit_standalone }| &&
+        |\\INTERFACE=zif_abapgit_persistence| &&
+        |\\TYPE=ty_repos|.
 
-      CATCH cx_sy_dyn_call_illegal_class.
-        out->write( `Cannot pull repos, requires abapGit developer version` ).
+    DATA dref TYPE REF TO data.
+*    FIELD-SYMBOLS <f> TYPE any.
+
+    TRY.
+        CREATE DATA dref TYPE (type_name).
+*        ASSIGN dref->* TO <f>.
+      CATCH cx_sy_create_data_error INTO DATA(exc).
+        out->write( exc->get_text( ) ).
         RAISE EXCEPTION TYPE lcx_error.
     ENDTRY.
+
+    TRY.
+        CALL METHOD ('\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZCL_ABAPGIT_PERSIST_FACTORY')=>('GET_REPO') RECEIVING ri_repo = repo.
+        CALL METHOD repo->('ZIF_ABAPGIT_PERSIST_REPO~LIST') RECEIVING rt_repos = dref->*.
+
+      CATCH cx_sy_dyn_call_illegal_class INTO DATA(repo_exc).
+        out->write( |Error pulling repos: { repo_exc->get_text( ) }| ).
+        RAISE EXCEPTION TYPE lcx_error.
+    ENDTRY.
+
+    repos = dref.
 
   ENDMETHOD.
 
@@ -255,34 +338,64 @@ CLASS repo IMPLEMENTATION.
     DATA log TYPE REF TO object. "zif_abapgit_log
     DATA background TYPE REF TO object. "zif_abapgit_background
 
-    LOOP AT repos INTO DATA(repo_data) WHERE package = i_package.
-      out->write( |Package { i_package } already used in repo { repo_data-local_settings-display_name }| ).
-      RETURN.
-    ENDLOOP.
+    FIELD-SYMBOLS <f> TYPE any.
+    FIELD-SYMBOLS <n> TYPE any.
+    FIELD-SYMBOLS <p> TYPE any.
+    FIELD-SYMBOLS <t> TYPE ANY TABLE.
 
-    CONSTANTS zcl_abapgit_repo_srv TYPE classname VALUE 'ZCL_ABAPGIT_REPO_SRV'.
+    DATA(repos) = get_repos( ).
 
-    CALL METHOD (zcl_abapgit_repo_srv)=>get_instance RECEIVING ri_srv = repo_srv.
+    check_package_conflict( i_package ).
+
+*    IF repos IS NOT INITIAL.
+*      ASSIGN repos->* TO <t>.
+*
+*      LOOP AT <t> ASSIGNING <f>. " WHERE package = i_package.
+*        ASSIGN COMPONENT 'PACKAGE' OF STRUCTURE <f> TO <p>.
+*        ASSIGN COMPONENT 'LOCAL_SETTINGS' OF STRUCTURE <p> TO <n>.
+*        IF <p> = i_package.
+*          out->write( |Package { i_package } already used in repo { <n> }| ).
+*          RETURN.
+*        ENDIF.
+*      ENDLOOP.
+*    ENDIF.
+
+    FIELD-SYMBOLS <rs> TYPE any.
+    DATA o TYPE REF TO object.
+
+    CALL METHOD ('\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZCL_ABAPGIT_REPO_SRV')=>get_instance RECEIVING ri_srv = repo_srv.
+
+    " obj->(`intf~meth`) would be much easier but let's do it properly with a dynamic cast to interface :)
+*    DATA rs TYPE REF TO data.
+*    CREATE DATA rs TYPE REF TO (`\PROGRAM=ZABAPGIT_STANDALONE\INTERFACE=ZIF_ABAPGIT_REPO_SRV`).
+*    ASSIGN rs->* TO <rs>.
+*    rs ?= o.
+*    repo_srv = <rs>.
+    "Hmm, can't get this to work... Todo: fix
 
     TRY.
 
-        CALL METHOD repo_srv->(`NEW_ONLINE`)
+        DATA new_repo TYPE REF TO object.
+
+        CALL METHOD repo_srv->(`ZIF_ABAPGIT_REPO_SRV~NEW_ONLINE`)
           EXPORTING
             iv_url          = i_url
             iv_package      = i_package
             iv_display_name = i_name
           RECEIVING
-            ro_repo         = repo.
+            ri_repo         = new_repo.
 
         out->write( |Repo { i_name } created| ).
 
-        CREATE OBJECT log TYPE (`ZCL_ABAPGIT_LOG`).
+        CREATE OBJECT log TYPE (`\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZCL_ABAPGIT_LOG`).
 
-        CREATE OBJECT background TYPE (`ZCL_ABAPGIT_BACKGROUND_PULL`).
+        CREATE OBJECT background TYPE (`\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZCL_ABAPGIT_BACKGROUND_PULL`).
 
+*importing   io_repo type ref to zcl_abapgit_repo_online
+*ii_log  type ref to zif_abapgit_log
         CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
           EXPORTING
-            io_repo = repo
+            io_repo = new_repo
             ii_log  = log.
 
         TYPES:
@@ -307,8 +420,125 @@ CLASS repo IMPLEMENTATION.
 
   ENDMETHOD.
 
+
+  METHOD check_package_conflict.
+
+    FIELD-SYMBOLS <row> TYPE any.
+    FIELD-SYMBOLS <settings> TYPE any.
+    FIELD-SYMBOLS <package> TYPE any.
+    FIELD-SYMBOLS <table> TYPE ANY TABLE.
+    FIELD-SYMBOLS: <name> TYPE data.
+
+    IF repos IS NOT INITIAL.
+
+      TRY.
+          ASSIGN repos->* TO <table>.
+
+          LOOP AT <table> ASSIGNING <row>.
+            ASSIGN COMPONENT 'PACKAGE' OF STRUCTURE <row> TO <package>.
+            ASSIGN COMPONENT 'LOCAL_SETTINGS' OF STRUCTURE <row> TO <settings>.
+            ASSIGN COMPONENT 'DISPLAY_NAME' OF STRUCTURE <settings> TO <name>.
+            IF <package> = package.
+              out->write( |Package { package } already used in repo { <name> }| ).
+              result = abap_true.
+            ENDIF.
+          ENDLOOP.
+
+        CATCH cx_sy_assign_error INTO DATA(error).
+          out->write( |Dynamic assign error: { error->get_text( ) }| ).
+          RAISE EXCEPTION TYPE lcx_error.
+      ENDTRY.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD constructor.
+    out = output=>get_instance( ).
+  ENDMETHOD.
+
 ENDCLASS.
 
+
+CLASS ltc_repo DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS
+  INHERITING FROM repo.
+
+  PRIVATE SECTION.
+    CLASS-METHODS class_setup.
+    METHODS stop_if_no_abapgit FOR TESTING RAISING cx_static_check.
+    METHODS no_error_on_get_repos FOR TESTING RAISING cx_static_check.
+    METHODS get_repo_srv_instance FOR TESTING RAISING cx_static_check.
+
+ENDCLASS.
+
+INTERFACE lif_foo.
+ENDINTERFACE.
+
+CLASS lcl_foo DEFINITION.
+ENDCLASS.
+
+CLASS ltc_repo IMPLEMENTATION.
+
+  METHOD stop_if_no_abapgit.
+
+    abapgit_standalone = 'ITDOESNOTEXIST_1234'.
+    TRY.
+        get_repos( ).
+      CATCH lcx_error.
+        "as expected
+    ENDTRY.
+
+  ENDMETHOD.
+
+
+  METHOD no_error_on_get_repos.
+
+    SELECT SINGLE progname FROM reposrc INTO @DATA(dummy)
+          WHERE progname = 'ZABAPGIT_STANDALONE'.
+    cl_abap_unit_assert=>assert_subrc(
+        msg              = `ZABAPGIT_STANDALONE not found, skipping test`
+        level            = if_abap_unit_constant=>severity-low
+        quit             = if_abap_unit_constant=>quit-no ).
+
+    "There may not be any, so just make sure there are no exceptions
+    "Todo: Put all the dynamic stuff into wrappers, can't really mock it
+    get_repos( ).
+
+  ENDMETHOD.
+
+
+  METHOD get_repo_srv_instance.
+
+    FIELD-SYMBOLS <rs> TYPE any.
+    DATA o TYPE REF TO object.
+
+    CALL METHOD ('\PROGRAM=ZABAPGIT_STANDALONE\CLASS=ZCL_ABAPGIT_REPO_SRV')=>get_instance RECEIVING ri_srv = o. "repo_srv.
+
+    "Interfaces are a pain, obj->(`intf~meth`) would be much easier but let's do it properly :)
+    DATA rs TYPE REF TO data.
+    CREATE DATA rs TYPE REF TO (`\PROGRAM=ZABAPGIT_STANDALONE\INTERFACE=ZIF_ABAPGIT_REPO_SRV`).
+    ASSIGN rs->* TO <rs>.
+    <rs> ?= o.
+    cl_abap_unit_assert=>assert_bound( <rs> ).
+
+  ENDMETHOD.
+
+
+  METHOD class_setup.
+
+    SELECT SINGLE progname FROM reposrc INTO @DATA(dummy)
+          WHERE progname = 'ZABAPGIT_STANDALONE'.
+
+    IF sy-subrc <> 0.
+      cl_abap_unit_assert=>skip( `ZABAPGIT_STANDALONE not found, skipping test` ).
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
 
 *--------------------------------------------------------------------*
 CLASS ag_standalone DEFINITION CREATE PUBLIC.
@@ -322,6 +552,7 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
     TYPES t_source_lines TYPE STANDARD TABLE OF abaptxt255 WITH EMPTY KEY.
 
     DATA url TYPE string VALUE `https://raw.githubusercontent.com/abapGit/build/main/zabapgit_standalone.prog.abap`.
+    DATA out TYPE REF TO output.
 
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
@@ -336,11 +567,14 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
                                   RAISING   lcx_error.
 ENDCLASS.
 
+
 *--------------------------------------------------------------------*
 CLASS ag_standalone IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD execute.
+
+    out = output=>get_instance( ).
 
     DATA(source) = get_source( ).
     DATA(source_lines) = validate_and_split_source( source ).
@@ -457,86 +691,6 @@ CLASS ag_standalone IMPLEMENTATION.
 
 ENDCLASS.
 
-*--------------------------------------------------------------------*
-CLASS ltc_ag_standalone DEFINITION FINAL FOR TESTING
-  DURATION SHORT
-  RISK LEVEL HARMLESS
-  INHERITING FROM ag_standalone.
-*--------------------------------------------------------------------*
-
-  PROTECTED SECTION.
-    METHODS get_source REDEFINITION.
-    METHODS insert_report REDEFINITION.
-
-  PRIVATE SECTION.
-    DATA report_lines TYPE STANDARD TABLE OF string WITH EMPTY KEY.
-    CLASS-DATA source TYPE string.
-    CLASS-METHODS class_setup.
-
-    METHODS setup.
-
-    METHODS response_content_ok FOR TESTING RAISING cx_static_check.
-    METHODS report_inserted FOR TESTING RAISING cx_static_check.
-    METHODS response_received FOR TESTING RAISING cx_static_check.
-
-ENDCLASS.
-
-
-*--------------------------------------------------------------------*
-CLASS ltc_ag_standalone IMPLEMENTATION.
-*--------------------------------------------------------------------*
-
-  METHOD class_setup.
-    out = cl_demo_output=>new( ).
-  ENDMETHOD.
-
-
-  METHOD setup.
-    url = `https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/LICENSE`.
-  ENDMETHOD.
-
-
-  METHOD response_received.
-    cl_abap_unit_assert=>assert_not_initial( get_source( ) ).
-  ENDMETHOD.
-
-
-  METHOD response_content_ok.
-    source = get_source( ).
-    DATA(header) = substring( val = source len = 11 ).
-    cl_abap_unit_assert=>assert_equals( act = header
-                                        exp = `MIT License` ).
-  ENDMETHOD.
-
-
-  METHOD report_inserted.
-
-    DATA(local_source) = |REPORT zabapgit_standalone.\n{ get_source( ) }|.
-    DATA(source_lines) = validate_and_split_source( local_source ).
-
-    insert_report( source_lines ).
-
-    cl_abap_unit_assert=>assert_not_initial( report_lines ).
-    cl_abap_unit_assert=>assert_table_contains( line = `SOFTWARE.` table = report_lines ).
-
-  ENDMETHOD.
-
-
-  METHOD insert_report.
-    report_lines = source_lines.
-  ENDMETHOD.
-
-
-  METHOD get_source.
-    "Bit hacky, but let's only go out to GitHub once per test run
-    IF source IS INITIAL.
-      source = super->get_source( ).
-    ENDIF.
-    result = source.
-  ENDMETHOD.
-
-ENDCLASS.
-
 
 *--------------------------------------------------------------------*
 "!
@@ -647,7 +801,6 @@ CLASS zcx_certi_strust DEFINITION
         VALUE(rs_msg) TYPE symsg.
 
 ENDCLASS.
-
 
 
 CLASS zcx_certi_strust IMPLEMENTATION.
@@ -1631,9 +1784,11 @@ CLASS zcl_certi_strust IMPLEMENTATION.
 
   ENDMETHOD.
 ENDCLASS.
+
 **********************************************************************
 * End of include from https://github.com/sandraros/zcerti
 **********************************************************************
+
 
 *--------------------------------------------------------------------*
 CLASS sslcert DEFINITION.
@@ -1648,6 +1803,7 @@ CLASS sslcert DEFINITION.
   PROTECTED SECTION.
   PRIVATE SECTION.
     DATA strust TYPE REF TO zcl_certi_strust.
+    DATA out TYPE REF TO output.
 
 ENDCLASS.
 
@@ -1659,6 +1815,8 @@ CLASS sslcert IMPLEMENTATION.
   METHOD execute.
 
     DATA strust_error TYPE REF TO zcx_certi_strust.
+
+    out = output=>get_instance( ).
 
     IF exists( host ).
       out->write( |Certificate for { host } already exists, not imported| ).
@@ -1799,6 +1957,7 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
+    DATA out TYPE REF TO output.
 
 ENDCLASS.
 
@@ -1815,6 +1974,8 @@ CLASS user_profile IMPLEMENTATION.
           defaults  TYPE bapidefaul,
           defaultsx TYPE bapidefax,
           addsmtp   TYPE STANDARD TABLE OF bapiadsmtp.
+
+    DATA out TYPE REF TO output.
 
     defaults-datfm  = profile-date_format.
     defaultsx-datfm = profile-date_format.
@@ -1858,6 +2019,7 @@ CLASS user_profile IMPLEMENTATION.
 
 ENDCLASS.
 
+
 *--------------------------------------------------------------------*
 CLASS main DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
@@ -1880,6 +2042,7 @@ CLASS main DEFINITION CREATE PUBLIC.
     DATA github_token TYPE rfcexec_ext.
     DATA sslhosts TYPE STANDARD TABLE OF string WITH EMPTY KEY.
     DATA profile TYPE user_profile=>t_profile.
+    DATA out TYPE REF TO output.
 
     METHODS import_repos.
 
@@ -1891,6 +2054,8 @@ CLASS main IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD constructor.
+
+    out = output=>get_instance( ).
 
     "Customize setup here, or copy/paste into include zdevsysinit_params
     "Create include outside package (e.g. $tmp) if it should not go to GitHub
@@ -2084,7 +2249,7 @@ ENDCLASS.
 INITIALIZATION.
 *--------------------------------------------------------------------*
 
-  out = cl_demo_output=>new( ).
+  out = output=>get_instance( ).
 
   DATA(init) = NEW initialization( ).
   init->check_and_update_texts( ).
@@ -2101,6 +2266,89 @@ START-OF-SELECTION.
 **********************************************************************
 * Tests
 **********************************************************************
+
+
+*--------------------------------------------------------------------*
+CLASS ltc_ag_standalone DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS
+  INHERITING FROM ag_standalone.
+*--------------------------------------------------------------------*
+
+  PROTECTED SECTION.
+    METHODS get_source REDEFINITION.
+    METHODS insert_report REDEFINITION.
+
+  PRIVATE SECTION.
+    DATA report_lines TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+    CLASS-DATA source TYPE string.
+    CLASS-METHODS class_setup.
+
+    METHODS setup.
+
+    METHODS response_content_ok FOR TESTING RAISING cx_static_check.
+    METHODS report_inserted FOR TESTING RAISING cx_static_check.
+    METHODS response_received FOR TESTING RAISING cx_static_check.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS ltc_ag_standalone IMPLEMENTATION.
+*--------------------------------------------------------------------*
+
+  METHOD class_setup.
+  ENDMETHOD.
+
+
+  METHOD setup.
+    out = output=>get_instance( ).
+    url = `https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/LICENSE`.
+  ENDMETHOD.
+
+
+  METHOD response_received.
+    cl_abap_unit_assert=>assert_not_initial( get_source( ) ).
+  ENDMETHOD.
+
+
+  METHOD response_content_ok.
+    source = get_source( ).
+    DATA(header) = substring( val = source len = 11 ).
+    cl_abap_unit_assert=>assert_equals( act = header
+                                        exp = `MIT License` ).
+  ENDMETHOD.
+
+
+  METHOD report_inserted.
+
+    DATA(local_source) = |REPORT zabapgit_standalone.\n{ get_source( ) }|.
+
+    DATA(source_lines) = validate_and_split_source( local_source ).
+
+    insert_report( source_lines ).
+
+    cl_abap_unit_assert=>assert_not_initial( report_lines ).
+    cl_abap_unit_assert=>assert_table_contains( line = `SOFTWARE.` table = report_lines ).
+
+  ENDMETHOD.
+
+
+  METHOD insert_report.
+    report_lines = source_lines.
+  ENDMETHOD.
+
+
+  METHOD get_source.
+    "Bit hacky, but let's only go out to GitHub once per test run
+    IF source IS INITIAL.
+      source = super->get_source( ).
+    ENDIF.
+    result = source.
+  ENDMETHOD.
+
+ENDCLASS.
+
 
 *--------------------------------------------------------------------*
 CLASS ltc_rfcdest DEFINITION FINAL FOR TESTING
@@ -2132,7 +2380,7 @@ CLASS ltc_rfcdest IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD setup.
-    out = cl_demo_output=>new( ).
+    out = output=>get_instance( ).
   ENDMETHOD.
 
   METHOD create_if_not_exists.
