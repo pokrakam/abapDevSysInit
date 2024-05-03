@@ -30,10 +30,16 @@ CLASS output DEFINITION CREATE PUBLIC.
 
     METHODS write IMPORTING data TYPE any.
     METHODS display IMPORTING data TYPE any OPTIONAL.
+    METHODS add_to_last IMPORTING text TYPE clike.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
     CLASS-DATA out TYPE REF TO if_demo_output.
+    TYPES: BEGIN OF t_out,
+             text TYPE string,
+           END OF t_out.
+    CLASS-DATA outtab TYPE STANDARD TABLE OF t_out WITH EMPTY KEY.
+    CLASS-DATA progress TYPE REF TO cl_progress_indicator.
 
 ENDCLASS.
 
@@ -43,11 +49,47 @@ CLASS output IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD write.
-    out->write( data ).
+
+    cl_progress_indicator=>progress_indicate( i_text               = data
+                                              i_output_immediately = abap_true ).
+
+    FIELD-SYMBOLS <line> TYPE any.
+
+    DESCRIBE FIELD data TYPE DATA(type).
+
+    IF 'CNg' CS type.
+      APPEND VALUE #( text = data ) TO outtab.
+    ELSEIF type = 'h'. "Table
+      LOOP AT data ASSIGNING <line>.
+        write( <line> ).
+      ENDLOOP.
+    ELSE.
+      DATA(json) = /ui2/cl_json=>serialize(
+        data             = data
+        pretty_name      = /ui2/cl_json=>pretty_mode-low_case
+        compress         = abap_false
+        assoc_arrays     = abap_true
+        assoc_arrays_opt = abap_true
+        format_output    = abap_true
+        hex_as_base64    = abap_false ).
+      APPEND VALUE #( text = json ) TO outtab.
+    ENDIF.
+
   ENDMETHOD.
 
   METHOD display.
-    out->display( data ).
+
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table = DATA(alv)
+          CHANGING
+            t_table      = outtab
+        ).
+      CATCH cx_salv_msg.
+    ENDTRY.
+    alv->display( ).
+
   ENDMETHOD.
 
   METHOD get_instance.
@@ -55,6 +97,20 @@ CLASS output IMPLEMENTATION.
       out = cl_demo_output=>new( ).
     ENDIF.
     result = NEW output( ).
+  ENDMETHOD.
+
+  METHOD add_to_last.
+
+    DATA(last_row) = lines( outtab ).
+
+    IF last_row > 0.
+      DATA(row) = REF #( outtab[ last_row ] ).
+      row->text = |{ row->text } { text }|.
+    ENDIF.
+
+    cl_progress_indicator=>progress_indicate( i_text               = row->text
+                                              i_output_immediately = abap_true ).
+
   ENDMETHOD.
 
 ENDCLASS.
@@ -114,9 +170,10 @@ CLASS rfc_destination IMPLEMENTATION.
 
     ENDIF.
 
+    out->write( |Creating RFC destination { name }...| ).
     create_rfc_destination( i_user  = i_user
                             i_token = i_token ).
-    out->write( |RFC destination { name } created| ).
+    out->add_to_last( | done.| ).
 
   ENDMETHOD.
 
@@ -375,14 +432,18 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
     METHODS insert_report IMPORTING source_lines TYPE t_source_lines
-                          RAISING
-                                    lcx_error.
+                          RAISING   lcx_error.
+    METHODS update_report IMPORTING source_lines TYPE t_source_lines
+                          RAISING   lcx_error.
+
     METHODS validate_and_split_source IMPORTING source        TYPE string
                                       RETURNING VALUE(result) TYPE ag_standalone=>t_source_lines
                                       RAISING   lcx_error.
   PRIVATE SECTION.
     METHODS fail_on_nonzero_subrc IMPORTING message TYPE string
                                   RAISING   lcx_error.
+    METHODS exists IMPORTING obj_name      TYPE sobj_name
+                   RETURNING VALUE(result) TYPE abap_bool.
 ENDCLASS.
 
 
@@ -394,10 +455,18 @@ CLASS ag_standalone IMPLEMENTATION.
 
     out = output=>get_instance( ).
 
+    out->write( `Fetching ZABAPGIT_STANDALONE source` ).
     DATA(source) = get_source( ).
     DATA(source_lines) = validate_and_split_source( source ).
 
-    insert_report( source_lines ).
+    IF exists( `ZABAPGIT_STANDALONE` ).
+      out->write( `Updating ZABAPGIT_STANDALONE...` ).
+    ELSE.
+      out->write( `Creating ZABAPGIT_STANDALONE...` ).
+      insert_report( source_lines ).
+    ENDIF.
+
+    out->add_to_last( ' done.' ).
 
   ENDMETHOD.
 
@@ -477,20 +546,25 @@ CLASS ag_standalone IMPLEMENTATION.
         permission_error  = 4
         OTHERS            = 5.
 
-    IF sy-subrc = 1.
-      CALL FUNCTION 'RPY_PROGRAM_UPDATE'
-        EXPORTING
-          program_name     = 'ZABAPGIT_STANDALONE'
-        TABLES
-          source_extended  = source_lines
-        EXCEPTIONS
-          cancelled        = 1
-          permission_error = 2
-          not_found        = 3
-          OTHERS           = 4.
-    ENDIF.
-
     fail_on_nonzero_subrc( |Failed to create ZABAPGIT_STANDALONE, subrc { sy-subrc }| ).
+
+  ENDMETHOD.
+
+
+  METHOD update_report.
+
+    CALL FUNCTION 'RPY_PROGRAM_UPDATE'
+      EXPORTING
+        program_name     = 'ZABAPGIT_STANDALONE'
+      TABLES
+        source_extended  = source_lines
+      EXCEPTIONS
+        cancelled        = 1
+        permission_error = 2
+        not_found        = 3
+        OTHERS           = 4.
+
+    fail_on_nonzero_subrc( |Failed to update ZABAPGIT_STANDALONE, subrc { sy-subrc }| ).
 
   ENDMETHOD.
 
@@ -504,6 +578,15 @@ CLASS ag_standalone IMPLEMENTATION.
 
     DATA source_lines TYPE t_source_lines.
     SPLIT source AT cl_abap_char_utilities=>newline INTO TABLE result.
+
+  ENDMETHOD.
+
+
+  METHOD exists.
+
+    SELECT SINGLE @abap_true FROM tadir
+      WHERE obj_name = @obj_name
+      INTO  @result.
 
   ENDMETHOD.
 
@@ -1641,6 +1724,8 @@ CLASS sslcert IMPLEMENTATION.
       RETURN.
     ENDIF.
 
+    out->write( |Importing certificate for { host }...| ).
+
     DATA(icm_trace_api) = zcl_certi_icm_trace=>create( ).
 
     " Get current ICM trace level for later restore
@@ -1689,12 +1774,12 @@ CLASS sslcert IMPLEMENTATION.
         ENDLOOP.
         strust->update( ).
         COMMIT WORK.
-        out->write( |Certificate for { host } imported| ).
 
       CATCH zcx_certi_strust INTO strust_error.
         MESSAGE strust_error TYPE 'I' DISPLAY LIKE 'E'.
         RETURN.
     ENDTRY.
+    out->add_to_last( `done.` ).
 
   ENDMETHOD.
 
@@ -1724,6 +1809,7 @@ CLASS sslcert IMPLEMENTATION.
   METHOD constructor.
 
     TRY.
+        out = NEW output( ).
 
         strust = NEW zcl_certi_strust( iv_context = 'SSLC'
                                        iv_applic  = 'ANONYM' ).
@@ -1775,7 +1861,6 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    DATA out TYPE REF TO output.
 
 ENDCLASS.
 
@@ -1793,7 +1878,9 @@ CLASS user_profile IMPLEMENTATION.
           defaultsx TYPE bapidefax,
           addsmtp   TYPE STANDARD TABLE OF bapiadsmtp.
 
-    DATA out TYPE REF TO output.
+    DATA(out) = NEW output( ).
+
+    out->write( 'Updating user profile...' ).
 
     defaults-datfm  = profile-date_format.
     defaultsx-datfm = profile-date_format.
@@ -1832,6 +1919,7 @@ CLASS user_profile IMPLEMENTATION.
     ENDLOOP.
 
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
+    out->add_to_last( 'done.' ).
 
   ENDMETHOD.
 
@@ -1916,7 +2004,6 @@ CLASS main IMPLEMENTATION.
 
     IF p_rfcdst = abap_true.
 
-      out->write( `Creating RFC Destination` ).
       NEW rfc_destination( )->execute(
         i_name  = 'GITHUB'
         i_user  = github_user
@@ -1926,7 +2013,6 @@ CLASS main IMPLEMENTATION.
 
     IF p_certi = abap_true.
 
-      out->write( `Creating Certificates` ).
       DATA(cert) = NEW sslcert( ).
       LOOP AT sslhosts INTO DATA(host).
         cert->execute( host ).
@@ -1936,7 +2022,6 @@ CLASS main IMPLEMENTATION.
 
     IF p_abapgt = abap_true.
 
-      out->write( `Creating abapGit` ).
       TRY.
           NEW ag_standalone( )->execute( ).
         CATCH lcx_error.
@@ -1953,13 +2038,12 @@ CLASS main IMPLEMENTATION.
     IF profile IS NOT INITIAL.
       TRY.
           NEW user_profile( )->execute( profile ).
-          out->write( `User profile updated` ).
         CATCH lcx_error.
           out->write( `Error updating user profile` ).
       ENDTRY.
     ENDIF.
 
-    out->write( `Done.` ).
+    out->write( `Finished.` ).
 
   ENDMETHOD.
 
