@@ -34,3 +34,8 @@ information that should not be published on GitHub. Instead, save a copy on your
 laptop on in a Gist to reuse the next time you set up a new dev/trial system. 
 It is highly recommended not to put tokens into the source code, or to delete 
 them once the RFC destination has been created.
+
+Note that the full version of abapGit is needed in order to pull repos. If it is 
+not installed, it must currently be done manually (work in progress). Run 
+ZABAPGIT_STANDALONE and pull [https://github.com/abapgit/](https://github.com/abapGit/abapGit)
+Then re-run zDevSysInit and you can pull a list of repos as defined in `zdevsysinit_params`.
