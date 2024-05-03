@@ -461,6 +461,7 @@ CLASS ag_standalone IMPLEMENTATION.
 
     IF exists( `ZABAPGIT_STANDALONE` ).
       out->write( `Updating ZABAPGIT_STANDALONE...` ).
+      update_report( source_lines ).
     ELSE.
       out->write( `Creating ZABAPGIT_STANDALONE...` ).
       insert_report( source_lines ).
