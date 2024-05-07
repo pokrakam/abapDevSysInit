@@ -1,8 +1,5 @@
 REPORT zdevsysinit.
 
-* Todo: ability to reset/re-run some items
-*PARAMETERS p_reset TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
-
 PARAMETERS p_ghuser TYPE rfcalias.
 PARAMETERS p_token TYPE rfcexec_ext.
 PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
@@ -29,7 +26,7 @@ CLASS output DEFINITION CREATE PUBLIC.
     CLASS-METHODS get_instance RETURNING VALUE(result) TYPE REF TO output.
 
     METHODS write IMPORTING data TYPE any.
-    METHODS display IMPORTING data TYPE any OPTIONAL.
+    METHODS display.
     METHODS add_to_last IMPORTING text TYPE clike.
 
   PROTECTED SECTION.
@@ -39,7 +36,6 @@ CLASS output DEFINITION CREATE PUBLIC.
              text TYPE string,
            END OF t_out.
     CLASS-DATA outtab TYPE STANDARD TABLE OF t_out WITH EMPTY KEY.
-    CLASS-DATA progress TYPE REF TO cl_progress_indicator.
 
 ENDCLASS.
 
@@ -50,10 +46,10 @@ CLASS output IMPLEMENTATION.
 
   METHOD write.
 
+    FIELD-SYMBOLS <line> TYPE any.
+
     cl_progress_indicator=>progress_indicate( i_text               = data
                                               i_output_immediately = abap_true ).
-
-    FIELD-SYMBOLS <line> TYPE any.
 
     DESCRIBE FIELD data TYPE DATA(type).
 
@@ -1795,6 +1791,7 @@ CLASS sslcert IMPLEMENTATION.
         DATA(certificates) = strust->get_certificate_list( ).
 
         LOOP AT certificates TRANSPORTING NO FIELDS WHERE subject CS host.
+          "No problem
         ENDLOOP.
         IF sy-subrc = 0.
           result = abap_true.
@@ -1848,14 +1845,14 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
                  point             TYPE xudcpfm VALUE 'X',
                END OF c_decimal_format.
 
-    TYPES:BEGIN OF t_profile,
-            username       TYPE xubname,
-            firstname      TYPE ad_namefir,
-            lastname       TYPE ad_namelas,
-            email          TYPE ad_smtpadr,
-            date_format    TYPE xudatfm,
-            decimal_format TYPE xudcpfm,
-          END OF t_profile.
+    TYPES: BEGIN OF t_profile,
+             username       TYPE xubname,
+             firstname      TYPE ad_namefir,
+             lastname       TYPE ad_namelas,
+             email          TYPE ad_smtpadr,
+             date_format    TYPE xudatfm,
+             decimal_format TYPE xudcpfm,
+           END OF t_profile.
 
     METHODS execute IMPORTING profile TYPE t_profile
                     RAISING   lcx_error.
@@ -1896,27 +1893,20 @@ CLASS user_profile IMPLEMENTATION.
     address-e_mail = profile-email.
     addressx-e_mail = 'X'.
 
-*    IF profile-email IS NOT INITIAL.
-*      APPEND VALUE #( std_no = 'X' e_mail = profile-email ) TO addsmtp.
-*    ENDIF.
-
     CALL FUNCTION 'BAPI_USER_CHANGE'
       EXPORTING
         username  = profile-username
-*       logondata =
-*       logondatax         =
         defaults  = defaults
         defaultsx = defaultsx
         address   = address
         addressx  = addressx
       TABLES
-*       parameter =
         return    = return
         addsmtp   = addsmtp.
 
     LOOP AT return INTO DATA(msg) WHERE type CA 'AEX'.
       out->write( msg-message ).
-      RAISE EXCEPTION TYPE lcx_error.
+      RAISE EXCEPTION NEW lcx_error( ).
     ENDLOOP.
 
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
@@ -1938,13 +1928,13 @@ CLASS main DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    TYPES: BEGIN OF t_repo,
+    TYPES: BEGIN OF repo_type,
              name    TYPE string,
              package TYPE devclass,
              url     TYPE string,
-           END OF t_repo.
+           END OF repo_type.
 
-    DATA repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
+    DATA repos TYPE STANDARD TABLE OF repo_type WITH EMPTY KEY.
     DATA github_user  TYPE rfcalias.
     DATA github_token TYPE rfcexec_ext.
     DATA sslhosts TYPE STANDARD TABLE OF string WITH EMPTY KEY.
@@ -2185,7 +2175,6 @@ CLASS ltc_ag_standalone DEFINITION FINAL FOR TESTING
   PRIVATE SECTION.
     DATA report_lines TYPE STANDARD TABLE OF string WITH EMPTY KEY.
     CLASS-DATA source TYPE string.
-    CLASS-METHODS class_setup.
 
     METHODS setup.
 
@@ -2199,10 +2188,6 @@ ENDCLASS.
 *--------------------------------------------------------------------*
 CLASS ltc_ag_standalone IMPLEMENTATION.
 *--------------------------------------------------------------------*
-
-  METHOD class_setup.
-  ENDMETHOD.
-
 
   METHOD setup.
     out = output=>get_instance( ).
@@ -2313,15 +2298,19 @@ CLASS ltc_rfcdest IMPLEMENTATION.
 
 
   METHOD recreate_if_reset.
+
     td_exists = abap_true.
+
     execute(
       i_name  = ''
       i_user  = ''
       i_token = ''
       i_reset = abap_true
     ).
+
     cl_abap_unit_assert=>assert_true( deleted ).
     cl_abap_unit_assert=>assert_true( created ).
+
   ENDMETHOD.
 
 
