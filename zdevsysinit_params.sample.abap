@@ -25,13 +25,15 @@ sslhosts = VALUE #(
 ).
 
 " Change current user (DEVELOPER)
-* profile = VALUE #(
-*    firstname = 'John'
-*    lastname = 'Doe'
-*    email = 'someone@example.com'
-*    date_format = user_profile=>c_date_format-dmy_dot
-*    decimal_format = user_profile=>c_decimal_format-point
-* ).
+profile = VALUE #(
+  firstname = 'John'
+  lastname = 'Doe'
+  email = 'someone@example.com'
+  date_format = user_profile=>c_date_format-dmy_dot
+  decimal_format = user_profile=>c_decimal_format-point
+  hide_menu_picture = abap_true
+  show_menu_tcodes = abap_true
+).
 
 " Git repositories to be pulled
 repos = VALUE #(
