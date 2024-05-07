@@ -1,5 +1,6 @@
 REPORT zdevsysinit.
 
+PARAMETERS p_usrpfl TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_ghuser TYPE rfcalias.
 PARAMETERS p_token TYPE rfcexec_ext.
 PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
@@ -1852,13 +1853,25 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
              email          TYPE ad_smtpadr,
              date_format    TYPE xudatfm,
              decimal_format TYPE xudcpfm,
+             hide_menu_picture   TYPE abap_bool, "Show picture on main menu
+             show_menu_tcodes    TYPE abap_bool, "Show transaction codes on main menu
            END OF t_profile.
 
-    METHODS execute IMPORTING profile TYPE t_profile
-                    RAISING   lcx_error.
+    METHODS execute IMPORTING profile TYPE t_profile.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
+    DATA: out TYPE REF TO output.
+    METHODS update_user
+      IMPORTING
+        i_profile TYPE user_profile=>t_profile
+      RAISING
+        lcx_error.
+    METHODS update_menu
+      IMPORTING
+        i_profile TYPE user_profile=>t_profile
+      RAISING
+        lcx_error.
 
 ENDCLASS.
 
@@ -1876,26 +1889,54 @@ CLASS user_profile IMPLEMENTATION.
           defaultsx TYPE bapidefax,
           addsmtp   TYPE STANDARD TABLE OF bapiadsmtp.
 
-    DATA(out) = NEW output( ).
+    out = NEW output( ).
 
     out->write( 'Updating user profile...' ).
 
-    defaults-datfm  = profile-date_format.
-    defaultsx-datfm = profile-date_format.
+    TRY.
+        update_user( profile ).
+      CATCH lcx_error.
+        out->write( `Error updating profile` ).
+        out->write( 'Updating user settings...' ).
+    ENDTRY.
 
-    defaults-dcpfm  = profile-decimal_format.
-    defaultsx-dcpfm = profile-date_format.
+    TRY.
+        update_menu( profile ).
+      CATCH lcx_error.
+        out->write( `Error updating settings` ).
+        RETURN.
+    ENDTRY.
 
-    address-firstname  = profile-firstname.
-    address-lastname   = profile-lastname.
+    out->add_to_last( 'done.' ).
+
+  ENDMETHOD.
+
+
+  METHOD update_user.
+
+    DATA address TYPE bapiaddr3.
+    DATA addressx TYPE bapiaddr3x.
+    DATA return TYPE STANDARD TABLE OF bapiret2.
+    DATA defaults TYPE bapidefaul.
+    DATA defaultsx TYPE bapidefax.
+    DATA addsmtp TYPE STANDARD TABLE OF bapiadsmtp.
+
+    defaults-datfm  = i_profile-date_format.
+    defaultsx-datfm = i_profile-date_format.
+
+    defaults-dcpfm  = i_profile-decimal_format.
+    defaultsx-dcpfm = i_profile-date_format.
+
+    address-firstname  = i_profile-firstname.
+    address-lastname   = i_profile-lastname.
     addressx-firstname = abap_true.
     addressx-lastname  = abap_true.
-    address-e_mail = profile-email.
+    address-e_mail = i_profile-email.
     addressx-e_mail = 'X'.
 
     CALL FUNCTION 'BAPI_USER_CHANGE'
       EXPORTING
-        username  = profile-username
+        username  = i_profile-username
         defaults  = defaults
         defaultsx = defaultsx
         address   = address
@@ -1910,7 +1951,58 @@ CLASS user_profile IMPLEMENTATION.
     ENDLOOP.
 
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
-    out->add_to_last( 'done.' ).
+
+  ENDMETHOD.
+
+
+  METHOD update_menu.
+
+    DATA: flag1 TYPE c,
+          flag2 TYPE c,
+          flag3 TYPE c,
+          flag4 TYPE c,
+          flag5 TYPE c,
+          flag6 TYPE c,
+          flag7 TYPE c,
+          flag8 TYPE c,
+          flag9 TYPE c.
+
+    CALL FUNCTION 'PRGN_GET_BROWSER_OPTIONS_USER'
+      EXPORTING
+        uname                = sy-uname
+      IMPORTING
+        flag1                = flag1
+        flag2                = flag2
+        flag3                = flag3
+        flag4                = flag4
+        flag5                = flag5
+        flag6                = flag6
+        flag7                = flag7
+        flag8                = flag8
+        flag9                = flag9
+      EXCEPTIONS
+        no_options_available = 1
+        OTHERS               = 2.
+
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION NEW lcx_error( ).
+    ENDIF.
+
+    flag3 = i_profile-hide_menu_picture.
+    flag4 = i_profile-show_menu_tcodes.
+
+    CALL FUNCTION 'PRGN_SET_BROWSER_OPTIONS_USER'
+      EXPORTING
+        uname = sy-uname
+        flag1 = flag1
+        flag2 = flag2
+        flag3 = flag3
+        flag4 = flag4
+        flag5 = flag5
+        flag6 = flag6
+        flag7 = flag7
+        flag8 = flag8
+        flag9 = flag9.
 
   ENDMETHOD.
 
@@ -1993,6 +2085,10 @@ CLASS main IMPLEMENTATION.
 
     out->write( `Starting system configuration` ).
 
+    IF p_usrpfl = abap_true.
+      NEW user_profile( )->execute( profile ).
+    ENDIF.
+
     IF p_rfcdst = abap_true.
 
       NEW rfc_destination( )->execute(
@@ -2024,14 +2120,6 @@ CLASS main IMPLEMENTATION.
     IF p_repos = abap_true.
       out->write( `Importing repos` ).
       import_repos( ).
-    ENDIF.
-
-    IF profile IS NOT INITIAL.
-      TRY.
-          NEW user_profile( )->execute( profile ).
-        CATCH lcx_error.
-          out->write( `Error updating user profile` ).
-      ENDTRY.
     ENDIF.
 
     out->write( `Finished.` ).
@@ -2077,6 +2165,9 @@ CLASS initialization DEFINITION CREATE PUBLIC.
   PROTECTED SECTION.
   PRIVATE SECTION.
     METHODS insert_selection_texts.
+    METHODS is_default_user_name
+      RETURNING
+        VALUE(result) TYPE abap_bool.
 
 ENDCLASS.
 
@@ -2086,6 +2177,9 @@ CLASS initialization IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD propose_parameters.
+
+    p_usrpfl = is_default_user_name( ).
+
     IF NOT rfc_destination=>exists( 'GITHUB' ).
       p_rfcdst = abap_true.
       p_ghuser = NEW main( )->get_github_user( ).
@@ -2123,6 +2217,7 @@ CLASS initialization IMPLEMENTATION.
 
     texts = VALUE #(
       ( id = 'R' entry = 'Setup Dev system' length = '16' )
+      ( id = 'S' key = 'P_USRPFL'  entry = '        Update User Profile'           length = '27' )
       ( id = 'S' key = 'P_ABAPGT'  entry = '        Get abapGit Standalone'        length = '30' )
       ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'      length = '32' )
       ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
@@ -2132,6 +2227,24 @@ CLASS initialization IMPLEMENTATION.
     ).
 
     INSERT TEXTPOOL sy-repid FROM texts.
+
+  ENDMETHOD.
+
+
+  METHOD is_default_user_name.
+
+    DATA: address TYPE bapiaddr3,
+          return  TYPE STANDARD TABLE OF bapiret2.
+
+    CALL FUNCTION 'BAPI_USER_GET_DETAIL'
+      EXPORTING
+        username = sy-uname
+      IMPORTING
+        address  = address
+      TABLES
+        return   = return.
+
+    result = xsdbool( address-fullname = 'John Doe' ).
 
   ENDMETHOD.
 

@@ -50,7 +50,13 @@
      <ID>S</ID>
      <KEY>P_TOKEN</KEY>
      <ENTRY>GitHub Token</ENTRY>
-     <LENGTH>21</LENGTH>
+     <LENGTH>20</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_USRPFL</KEY>
+     <ENTRY>Update User Profile</ENTRY>
+     <LENGTH>27</LENGTH>
     </item>
    </TPOOL>
   </asx:values>
