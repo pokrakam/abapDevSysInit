@@ -92,13 +92,14 @@ CLASS output IMPLEMENTATION.
           IMPORTING
             r_salv_table = DATA(alv)
           CHANGING
-            t_table      = outtab
-        ).
+            t_table      = outtab ).
       CATCH cx_salv_msg.
     ENDTRY.
+
     alv->display( ).
 
   ENDMETHOD.
+
 
   METHOD get_instance.
     IF out IS INITIAL.
@@ -106,6 +107,7 @@ CLASS output IMPLEMENTATION.
     ENDIF.
     result = NEW output( ).
   ENDMETHOD.
+
 
   METHOD add_to_last.
 
@@ -118,7 +120,6 @@ CLASS output IMPLEMENTATION.
 
     cl_progress_indicator=>progress_indicate( i_text               = row->text
                                               i_output_immediately = abap_true ).
-
   ENDMETHOD.
 
 ENDCLASS.
@@ -267,10 +268,10 @@ CLASS repo DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
+
     METHODS execute IMPORTING name    TYPE string
                               package TYPE devclass
-                              url     TYPE string
-                              reset   TYPE abap_bool DEFAULT abap_false.
+                              url     TYPE string.
     METHODS constructor RAISING lcx_error.
 
   PROTECTED SECTION.
@@ -287,7 +288,7 @@ CLASS repo DEFINITION CREATE PUBLIC.
         min_patch   TYPE sappatchlv,
       END OF t_requirement.
 
-    TYPES ty_requirement_tt TYPE STANDARD TABLE OF t_requirement WITH EMPTY KEY .
+    TYPES t_requirements TYPE STANDARD TABLE OF t_requirement WITH EMPTY KEY.
 
     TYPES:
       BEGIN OF t_dot_abapgit,
@@ -297,7 +298,7 @@ CLASS repo DEFINITION CREATE PUBLIC.
         starting_folder       TYPE string,
         folder_logic          TYPE string,
         ignore                TYPE STANDARD TABLE OF string WITH EMPTY KEY,
-        requirements          TYPE ty_requirement_tt,
+        requirements          TYPE t_requirements,
         version_constant      TYPE string,
         abap_language_version TYPE string,
       END OF t_dot_abapgit.
@@ -332,11 +333,12 @@ CLASS repo DEFINITION CREATE PUBLIC.
              local_settings  TYPE t_local_settings,
            END OF t_repo_xml.
 
-    TYPES: BEGIN OF t_repo,
-             key TYPE t_value.
-             INCLUDE TYPE t_repo_xml.
-    TYPES: END OF t_repo.
-    TYPES: t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
+    TYPES BEGIN OF t_repo.
+    TYPES key TYPE t_value.
+    INCLUDE TYPE t_repo_xml.
+    TYPES END OF t_repo.
+
+    TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
 
     DATA repos TYPE t_repos.
 
@@ -357,7 +359,7 @@ CLASS repo IMPLEMENTATION.
 
       CATCH cx_sy_dyn_call_illegal_class.
         out->write( `Cannot pull repos, requires abapGit developer version` ).
-        RAISE EXCEPTION TYPE lcx_error.
+        RAISE EXCEPTION NEW lcx_error( ).
     ENDTRY.
 
   ENDMETHOD.
@@ -365,14 +367,14 @@ CLASS repo IMPLEMENTATION.
 
   METHOD execute.
 
-    TYPES: BEGIN OF ty_log_out,
+    TYPES: BEGIN OF t_log_out,
              type      TYPE symsgty,
              text      TYPE string,
              obj_type  TYPE trobjtype,
              obj_name  TYPE sobj_name,
              exception TYPE REF TO cx_root,
-           END OF ty_log_out.
-    TYPES tty_log_out TYPE STANDARD TABLE OF ty_log_out
+           END OF t_log_out.
+    TYPES tty_log_out TYPE STANDARD TABLE OF t_log_out
                 WITH EMPTY KEY.
     DATA messages TYPE tty_log_out.
 
@@ -437,7 +439,7 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
     DATA out TYPE REF TO output.
 
     DATA: source       TYPE string,
-          source_lines TYPE ag_standalone=>t_source_lines.
+          source_lines TYPE t_source_lines.
 
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
@@ -1793,19 +1795,17 @@ CLASS sslcert IMPLEMENTATION.
     DATA(request) = http_client->request.
     request->set_method( 'GET' ).
     request->set_version( if_http_request=>co_protocol_version_1_1 ). " HTTP 1.0 or 1.1
+
     http_client->send( EXCEPTIONS OTHERS = 1 ).
-    DATA return_code TYPE i.
-    DATA content     TYPE string.
-    DATA reason TYPE string.
     http_client->receive( EXCEPTIONS OTHERS = 1 ).
-    http_client->response->get_status( IMPORTING code   = return_code
-                                                 reason = reason ).
+    http_client->response->get_status( IMPORTING code   = DATA(return_code)
+                                                 reason = DATA(reason) ).
     IF return_code <> 200 AND return_code <> 500.
-      out->write( |Could not reach host { host }, returned { return_code }| ).
+      out->write( |Could not reach host { host }, returned { return_code }: { reason }| ).
       RETURN.
     ENDIF.
 
-    content = http_client->response->get_cdata( ).
+    http_client->response->get_cdata( ).
     http_client->close( EXCEPTIONS OTHERS = 1 ).
 
     " Get and parse the ICM trace
@@ -1876,22 +1876,22 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
 
   PUBLIC SECTION.
 
-    CONSTANTS: BEGIN OF c_date_format,
+    CONSTANTS: BEGIN OF date_format,
                  dmy_dot   TYPE xudatfm VALUE '1',
                  mdy_slash TYPE xudatfm VALUE '2',
                  mdy_dash  TYPE xudatfm VALUE '3',
                  ymd_dot   TYPE xudatfm VALUE '4',
                  ymd_slash TYPE xudatfm VALUE '5',
                  ymd_dash  TYPE xudatfm VALUE '6',
-               END OF c_date_format.
+               END OF date_format.
 
-    CONSTANTS: BEGIN OF c_decimal_format,
-                 comma             TYPE xudcpfm VALUE space,
-                 comma_with_spaces TYPE xudcpfm VALUE 'Y',
-                 point             TYPE xudcpfm VALUE 'X',
-               END OF c_decimal_format.
+    CONSTANTS: BEGIN OF decimal_format,
+                 comma             TYPE xudcpfm VALUE space,  "1.000.000,00
+                 comma_with_spaces TYPE xudcpfm VALUE 'Y',    "1 000 000,00
+                 point             TYPE xudcpfm VALUE 'X',    "1,000,000.00
+               END OF decimal_format.
 
-    TYPES: BEGIN OF t_profile,
+    TYPES: BEGIN OF profile_type,
              username          TYPE xubname,
              firstname         TYPE ad_namefir,
              lastname          TYPE ad_namelas,
@@ -1900,23 +1900,20 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
              decimal_format    TYPE xudcpfm,
              hide_menu_picture TYPE abap_bool, "Show picture on main menu
              show_menu_tcodes  TYPE abap_bool, "Show transaction codes on main menu
-           END OF t_profile.
+           END OF profile_type.
 
-    METHODS execute IMPORTING profile TYPE t_profile.
+    METHODS execute IMPORTING profile TYPE profile_type.
 
   PROTECTED SECTION.
+
   PRIVATE SECTION.
     DATA out TYPE REF TO output.
-    METHODS update_user
-      IMPORTING
-        i_profile TYPE t_profile
-      RAISING
-        lcx_error.
-    METHODS update_menu
-      IMPORTING
-        i_profile TYPE t_profile
-      RAISING
-        lcx_error.
+
+    METHODS update_user IMPORTING profile TYPE profile_type
+                        RAISING   lcx_error.
+
+    METHODS update_menu IMPORTING profile TYPE profile_type
+                        RAISING   lcx_error.
 
 ENDCLASS.
 
@@ -1926,13 +1923,6 @@ CLASS user_profile IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD execute.
-
-    DATA: address   TYPE bapiaddr3,
-          addressx  TYPE bapiaddr3x,
-          return    TYPE STANDARD TABLE OF bapiret2 WITH EMPTY KEY,
-          defaults  TYPE bapidefaul,
-          defaultsx TYPE bapidefax,
-          addsmtp   TYPE STANDARD TABLE OF bapiadsmtp WITH EMPTY KEY.
 
     out = NEW output( ).
 
@@ -1961,34 +1951,32 @@ CLASS user_profile IMPLEMENTATION.
 
     DATA address TYPE bapiaddr3.
     DATA addressx TYPE bapiaddr3x.
-    DATA return TYPE bapirettab. "STANDARD TABLE OF bapiret2." WITH NON-UNIQUE KEY table_line.
+    DATA return TYPE bapirettab.
     DATA defaults TYPE bapidefaul.
     DATA defaultsx TYPE bapidefax.
-    DATA addsmtp TYPE suid_tt_bapiadsmtp. "STANDARD TABLE OF bapiadsmtp WITH NON-UNIQUE KEY table_line.
 
-    defaults-datfm  = i_profile-date_format.
-    defaultsx-datfm = i_profile-date_format.
+    defaults-datfm  = profile-date_format.
+    defaultsx-datfm = profile-date_format.
 
-    defaults-dcpfm  = i_profile-decimal_format.
-    defaultsx-dcpfm = i_profile-date_format.
+    defaults-dcpfm  = profile-decimal_format.
+    defaultsx-dcpfm = profile-date_format.
 
-    address-firstname  = i_profile-firstname.
-    address-lastname   = i_profile-lastname.
+    address-firstname  = profile-firstname.
+    address-lastname   = profile-lastname.
     addressx-firstname = abap_true.
     addressx-lastname  = abap_true.
-    address-e_mail = i_profile-email.
+    address-e_mail = profile-email.
     addressx-e_mail = 'X'.
 
     CALL FUNCTION 'BAPI_USER_CHANGE'
       EXPORTING
-        username  = i_profile-username
+        username  = profile-username
         defaults  = defaults
         defaultsx = defaultsx
         address   = address
         addressx  = addressx
       TABLES
-        return    = return
-        addsmtp   = addsmtp.
+        return    = return.
 
     LOOP AT return INTO DATA(msg) WHERE type CA 'AEX'.
       out->write( msg-message ).
@@ -2033,8 +2021,8 @@ CLASS user_profile IMPLEMENTATION.
       RAISE EXCEPTION NEW lcx_error( ).
     ENDIF.
 
-    flag3 = i_profile-hide_menu_picture.
-    flag4 = i_profile-show_menu_tcodes.
+    flag3 = profile-hide_menu_picture.
+    flag4 = profile-show_menu_tcodes.
 
     CALL FUNCTION 'PRGN_SET_BROWSER_OPTIONS_USER'
       EXPORTING
@@ -2075,7 +2063,7 @@ CLASS main DEFINITION CREATE PUBLIC.
     DATA github_user  TYPE rfcalias.
     DATA github_token TYPE rfcexec_ext.
     DATA sslhosts TYPE STANDARD TABLE OF string WITH EMPTY KEY.
-    DATA profile TYPE user_profile=>t_profile.
+    DATA profile TYPE user_profile=>profile_type.
     DATA out TYPE REF TO output.
 
     METHODS import_repos.
@@ -2091,29 +2079,31 @@ CLASS main IMPLEMENTATION.
 
     out = output=>get_instance( ).
 
-    "Customize setup here, or copy/paste into include zdevsysinit_params
+    "Customize setup here, or use include zdevsysinit_params
+    "
     "Create include outside package (e.g. $tmp) if it should not go to GitHub
     "Remember to back it up locally!
 
-    " Template:
-*    repos = VALUE #(
-*        ( name = `` package = '' url = `` )
-*     ).
+    "To customize here, please see example values at:
+    " https://github.com/pokrakam/abapDevSysInit/blob/main/zdevsysinit_params.sample.abap
 
-*    profile = VALUE #(
-*        firstname = ''
-*        lastname = ''
-*        email = ''
-*        date_format = user_profile=>c_date_format-dmy_dot
-*        decimal_format = user_profile=>c_decimal_format-point
-*    ).
+    "Please note order of priority:
+    " 1. Anything supplied in the selection screen (highest priority)
+    " 2. Values specified in ZDEVSYSINIT_PARAMS
+    " 3. Config values here (lowest prio)
+
+*--- Begin customization section / default values / lowest prio
 
     sslhosts = VALUE #(
         ( `github.com` )
         ( `github.io` ) ).
 
+*--- End customization section
+
+    "Next prio
     INCLUDE zdevsysinit_params IF FOUND.
 
+    "Parameters override everything
     IF p_ghuser IS NOT INITIAL.
       github_user = p_ghuser.
     ENDIF.
