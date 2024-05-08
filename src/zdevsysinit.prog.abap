@@ -1,15 +1,21 @@
 REPORT zdevsysinit.
 
 PARAMETERS p_usrpfl TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
-PARAMETERS p_ghuser TYPE rfcalias.
-PARAMETERS p_token TYPE rfcexec_ext.
-PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
+
+SELECTION-SCREEN BEGIN OF BLOCK rfc WITH FRAME.
+  PARAMETERS p_rfcdst TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
+  PARAMETERS p_ghuser TYPE rfcalias.
+  PARAMETERS p_token TYPE rfcexec_ext.
+SELECTION-SCREEN END OF BLOCK rfc.
+
 PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_abapgt TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 
+
 CLASS output DEFINITION DEFERRED.
 DATA out TYPE REF TO output.
+
 
 *--------------------------------------------------------------------*
 CLASS lcx_error DEFINITION INHERITING FROM cx_static_check.
@@ -46,6 +52,8 @@ CLASS output IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD write.
+    CONSTANTS: type_chars TYPE string VALUE 'CNg',
+               type_table TYPE string VALUE 'h' ##NO_TEXT.
 
     FIELD-SYMBOLS <line> TYPE any.
 
@@ -54,12 +62,14 @@ CLASS output IMPLEMENTATION.
 
     DESCRIBE FIELD data TYPE DATA(type).
 
-    IF 'CNg' CS type.
+    IF type_chars CS type.
       APPEND VALUE #( text = data ) TO outtab.
-    ELSEIF type = 'h'. "Table
+
+    ELSEIF type = type_table.
       LOOP AT data ASSIGNING <line>.
         write( <line> ).
       ENDLOOP.
+
     ELSE.
       DATA(json) = /ui2/cl_json=>serialize(
         data             = data
@@ -70,6 +80,7 @@ CLASS output IMPLEMENTATION.
         format_output    = abap_true
         hex_as_base64    = abap_false ).
       APPEND VALUE #( text = json ) TO outtab.
+
     ENDIF.
 
   ENDMETHOD.
@@ -121,22 +132,22 @@ CLASS rfc_destination DEFINITION CREATE PUBLIC.
 
     CLASS-METHODS class_constructor.
 
-    CLASS-METHODS exists IMPORTING i_name        TYPE rfcdest
+    CLASS-METHODS exists IMPORTING name          TYPE rfcdest
                          RETURNING VALUE(result) TYPE abap_bool.
 
-    METHODS execute IMPORTING i_name  TYPE string
-                              i_user  TYPE rfcalias
-                              i_token TYPE rfcdisplay-rfcexec
-                              i_reset TYPE abap_bool DEFAULT abap_false.
+    METHODS execute IMPORTING name  TYPE string
+                              user  TYPE rfcalias
+                              token TYPE rfcdisplay-rfcexec
+                              reset TYPE abap_bool DEFAULT abap_false.
   PROTECTED SECTION.
-    METHODS create_rfc_destination IMPORTING i_user  TYPE rfcalias
-                                             i_token TYPE rfcdisplay-rfcexec.
+    METHODS create_rfc_destination IMPORTING user  TYPE rfcalias
+                                             token TYPE rfcdisplay-rfcexec.
     METHODS delete_rfc_destination.
-    METHODS check_existence IMPORTING i_name        TYPE rfcdest
+    METHODS check_existence IMPORTING name          TYPE rfcdest
                             RETURNING VALUE(result) TYPE abap_bool.
 
   PRIVATE SECTION.
-    DATA name TYPE rfcdest VALUE 'GITHUB' ##NO_TEXT.
+    DATA dest_name TYPE rfcdest VALUE 'GITHUB' ##NO_TEXT.
     CLASS-DATA out TYPE REF TO output.
 
 ENDCLASS.
@@ -153,23 +164,23 @@ CLASS rfc_destination IMPLEMENTATION.
 
   METHOD execute.
 
-    name = i_name.
+    dest_name = name.
 
-    IF check_existence( name ).
+    IF check_existence( dest_name ).
 
-      IF i_reset = abap_true.
+      IF reset = abap_true.
         delete_rfc_destination( ).
-        out->write( |RFC destination { name } deleted| ).
+        out->write( |RFC destination { dest_name } deleted| ).
       ELSE.
-        out->write( |RFC destination { name } already exists, not changed| ).
+        out->write( |RFC destination { dest_name } already exists, not changed| ).
         RETURN.
       ENDIF.
 
     ENDIF.
 
-    out->write( |Creating RFC destination { name }...| ).
-    create_rfc_destination( i_user  = i_user
-                            i_token = i_token ).
+    out->write( |Creating RFC destination { dest_name }...| ).
+    create_rfc_destination( user  = user
+                            token = token ).
     out->add_to_last( | done.| ).
 
   ENDMETHOD.
@@ -179,13 +190,13 @@ CLASS rfc_destination IMPLEMENTATION.
 
     CALL FUNCTION 'RFC_MODIFY_HTTP_DEST_TO_EXT'
       EXPORTING
-        destination                = name
+        destination                = dest_name
         action                     = 'I'
         authority_check            = abap_true
         servicenr                  = '443'
         server                     = 'github.com'
-        user                       = i_user
-        password                   = i_token
+        user                       = user
+        password                   = token
         sslapplic                  = 'ANONYM'
         logon_method               = 'B'
         ssl                        = abap_true
@@ -212,7 +223,7 @@ CLASS rfc_destination IMPLEMENTATION.
 
 
   METHOD exists.
-    result = NEW rfc_destination( )->check_existence( i_name ).
+    result = NEW rfc_destination( )->check_existence( name ).
   ENDMETHOD.
 
 
@@ -220,7 +231,7 @@ CLASS rfc_destination IMPLEMENTATION.
 
     CALL FUNCTION 'RFC_MODIFY_HTTP_DEST_TO_EXT'
       EXPORTING
-        destination                = name
+        destination                = dest_name
         action                     = 'D'
         authority_check            = abap_true
       EXCEPTIONS
@@ -245,7 +256,7 @@ CLASS rfc_destination IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD check_existence.
-    result = NEW cl_dest_factory( )->exists( i_name ).
+    result = NEW cl_dest_factory( )->exists( name ).
   ENDMETHOD.
 
 ENDCLASS.
@@ -256,43 +267,43 @@ CLASS repo DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
-    METHODS execute IMPORTING i_name    TYPE string
-                              i_package TYPE devclass
-                              i_url     TYPE string
-                              i_reset   TYPE abap_bool DEFAULT abap_false.
+    METHODS execute IMPORTING name    TYPE string
+                              package TYPE devclass
+                              url     TYPE string
+                              reset   TYPE abap_bool DEFAULT abap_false.
     METHODS constructor RAISING lcx_error.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
 
-    TYPES ty_value TYPE c LENGTH 12.
-    TYPES ty_sha1    TYPE c LENGTH 40 .
+    TYPES t_value TYPE c LENGTH 12.
+    TYPES t_sha1    TYPE c LENGTH 40.
 
-    TYPES ty_languages TYPE STANDARD TABLE OF laiso WITH DEFAULT KEY.
+    TYPES t_languages TYPE STANDARD TABLE OF laiso WITH EMPTY KEY.
     TYPES:
-      BEGIN OF ty_requirement,
+      BEGIN OF t_requirement,
         component   TYPE tdevc-dlvunit,
         min_release TYPE saprelease,
         min_patch   TYPE sappatchlv,
-      END OF ty_requirement .
+      END OF t_requirement.
 
-    TYPES ty_requirement_tt TYPE STANDARD TABLE OF ty_requirement WITH DEFAULT KEY .
+    TYPES ty_requirement_tt TYPE STANDARD TABLE OF t_requirement WITH EMPTY KEY .
 
     TYPES:
-      BEGIN OF ty_dot_abapgit,
+      BEGIN OF t_dot_abapgit,
         master_language       TYPE spras,
-        i18n_languages        TYPE ty_languages,
+        i18n_languages        TYPE t_languages,
         use_lxe               TYPE abap_bool,
         starting_folder       TYPE string,
         folder_logic          TYPE string,
-        ignore                TYPE STANDARD TABLE OF string WITH DEFAULT KEY,
+        ignore                TYPE STANDARD TABLE OF string WITH EMPTY KEY,
         requirements          TYPE ty_requirement_tt,
         version_constant      TYPE string,
         abap_language_version TYPE string,
-      END OF ty_dot_abapgit .
+      END OF t_dot_abapgit.
 
     TYPES:
-      BEGIN OF ty_local_settings,
+      BEGIN OF t_local_settings,
         display_name                 TYPE string,
         ignore_subpackages           TYPE abap_bool,
         write_protected              TYPE abap_bool,
@@ -303,12 +314,12 @@ CLASS repo DEFINITION CREATE PUBLIC.
         labels                       TYPE string,
         transport_request            TYPE trkorr,
         customizing_request          TYPE trkorr,
-      END OF ty_local_settings.
+      END OF t_local_settings.
 
-    TYPES: BEGIN OF ty_repo_xml,
+    TYPES: BEGIN OF t_repo_xml,
              url             TYPE string,
              branch_name     TYPE string,
-             selected_commit TYPE ty_sha1,
+             selected_commit TYPE t_sha1,
              package         TYPE devclass,
              created_by      TYPE syuname,
              created_at      TYPE timestampl,
@@ -316,18 +327,18 @@ CLASS repo DEFINITION CREATE PUBLIC.
              deserialized_at TYPE timestampl,
              offline         TYPE abap_bool,
              switched_origin TYPE string,
-             dot_abapgit     TYPE ty_dot_abapgit,
+             dot_abapgit     TYPE t_dot_abapgit,
              head_branch     TYPE string,   " HEAD symref of the repo, master branch
-             local_settings  TYPE ty_local_settings,
-           END OF ty_repo_xml.
+             local_settings  TYPE t_local_settings,
+           END OF t_repo_xml.
 
-    TYPES: BEGIN OF ty_repo,
-             key TYPE ty_value.
-             INCLUDE TYPE ty_repo_xml.
-    TYPES: END OF ty_repo.
-    TYPES: ty_repos TYPE STANDARD TABLE OF ty_repo WITH DEFAULT KEY.
+    TYPES: BEGIN OF t_repo,
+             key TYPE t_value.
+             INCLUDE TYPE t_repo_xml.
+    TYPES: END OF t_repo.
+    TYPES: t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
 
-    DATA repos TYPE ty_repos.
+    DATA repos TYPE t_repos.
 
 ENDCLASS.
 
@@ -354,13 +365,25 @@ CLASS repo IMPLEMENTATION.
 
   METHOD execute.
 
+    TYPES: BEGIN OF ty_log_out,
+             type      TYPE symsgty,
+             text      TYPE string,
+             obj_type  TYPE trobjtype,
+             obj_name  TYPE sobj_name,
+             exception TYPE REF TO cx_root,
+           END OF ty_log_out.
+    TYPES tty_log_out TYPE STANDARD TABLE OF ty_log_out
+                WITH EMPTY KEY.
+    DATA messages TYPE tty_log_out.
+
+
     DATA repo TYPE REF TO object. "zcl_abapgit_repo_online
     DATA repo_srv TYPE REF TO object. "zif_abapgit_repo_srv
     DATA log TYPE REF TO object. "zif_abapgit_log
     DATA background TYPE REF TO object. "zif_abapgit_background
 
-    LOOP AT repos INTO DATA(repo_data) WHERE package = i_package.
-      out->write( |Package { i_package } already used in repo { repo_data-local_settings-display_name }| ).
+    LOOP AT repos INTO DATA(repo_data) WHERE package = package.
+      out->write( |Package { package } already used in repo { repo_data-local_settings-display_name }| ).
       RETURN.
     ENDLOOP.
 
@@ -370,13 +393,13 @@ CLASS repo IMPLEMENTATION.
 
         CALL METHOD repo_srv->(`NEW_ONLINE`)
           EXPORTING
-            iv_url          = i_url
-            iv_package      = i_package
-            iv_display_name = i_name
+            iv_url          = url
+            iv_package      = package
+            iv_display_name = name
           RECEIVING
             ro_repo         = repo.
 
-        out->write( |Repo { i_name } created| ).
+        out->write( |Repo { name } created| ).
 
         CREATE OBJECT log TYPE (`ZCL_ABAPGIT_LOG`).
 
@@ -387,24 +410,11 @@ CLASS repo IMPLEMENTATION.
             io_repo = repo
             ii_log  = log.
 
-        TYPES:
-          BEGIN OF ty_log_out,
-            type      TYPE symsgty,
-            text      TYPE string,
-            obj_type  TYPE trobjtype,
-            obj_name  TYPE sobj_name,
-            exception TYPE REF TO cx_root,
-          END OF ty_log_out .
-        TYPES:
-          tty_log_out TYPE STANDARD TABLE OF ty_log_out
-                      WITH NON-UNIQUE DEFAULT KEY .
-        DATA messages TYPE tty_log_out.
-
         CALL METHOD log->(`GET_MESSAGES`) RECEIVING rt_msg = messages.
         out->write( messages ).
 
       CATCH cx_static_check INTO DATA(error).  "zcx_abapgit_exception
-        out->write( |Create repo { i_name } failed: { error->get_text( ) }| ).
+        out->write( |Create repo { name } failed: { error->get_text( ) }| ).
     ENDTRY.
 
   ENDMETHOD.
@@ -426,15 +436,18 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
     DATA url TYPE string VALUE `https://raw.githubusercontent.com/abapGit/build/main/zabapgit_standalone.prog.abap`.
     DATA out TYPE REF TO output.
 
+    DATA: source       TYPE string,
+          source_lines TYPE ag_standalone=>t_source_lines.
+
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
-    METHODS insert_report IMPORTING source_lines TYPE t_source_lines
+    METHODS insert_report IMPORTING program TYPE sobj_name
                           RAISING   lcx_error.
-    METHODS update_report IMPORTING source_lines TYPE t_source_lines
+    METHODS update_report IMPORTING program TYPE sobj_name
                           RAISING   lcx_error.
 
     METHODS validate_and_split_source IMPORTING source        TYPE string
-                                      RETURNING VALUE(result) TYPE ag_standalone=>t_source_lines
+                                      RETURNING VALUE(result) TYPE t_source_lines
                                       RAISING   lcx_error.
   PRIVATE SECTION.
     METHODS fail_on_nonzero_subrc IMPORTING message TYPE string
@@ -449,19 +462,20 @@ CLASS ag_standalone IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD execute.
+    CONSTANTS program TYPE sobj_name VALUE `ZABAPGIT_STANDALONE` ##NO_TEXT.
 
     out = output=>get_instance( ).
 
     out->write( `Fetching ZABAPGIT_STANDALONE source` ).
-    DATA(source) = get_source( ).
-    DATA(source_lines) = validate_and_split_source( source ).
+    source = get_source( ).
+    source_lines = validate_and_split_source( source ).
 
-    IF exists( `ZABAPGIT_STANDALONE` ).
+    IF exists( program ).
       out->write( `Updating ZABAPGIT_STANDALONE...` ).
-      update_report( source_lines ).
+      update_report( program ).
     ELSE.
       out->write( `Creating ZABAPGIT_STANDALONE...` ).
-      insert_report( source_lines ).
+      insert_report( program ).
     ENDIF.
 
     out->add_to_last( ' done.' ).
@@ -480,8 +494,7 @@ CLASS ag_standalone IMPLEMENTATION.
         argument_not_found = 1
         plugin_not_active  = 2
         internal_error     = 3
-        OTHERS             = 4
-    ).
+        OTHERS             = 4 ).
     fail_on_nonzero_subrc( `Could not create HTTP client` ).
 
     client->send(
@@ -490,8 +503,7 @@ CLASS ag_standalone IMPLEMENTATION.
         http_invalid_state         = 2
         http_processing_failed     = 3
         http_invalid_timeout       = 4
-        OTHERS                     = 5
-    ).
+        OTHERS                     = 5 ).
 
     fail_on_nonzero_subrc( |HTTP Send failure| ).
 
@@ -500,18 +512,16 @@ CLASS ag_standalone IMPLEMENTATION.
         http_communication_failure = 1
         http_invalid_state         = 2
         http_processing_failed     = 3
-        OTHERS                     = 4
-    ).
-*    fail_on_nonzero_subrc( |HTTP Receive failure| ).
+        OTHERS                     = 4 ).
+    "No subrc check as we're checking status
 
     client->response->get_status(
       IMPORTING
         code   = DATA(code)
-        reason = DATA(reason)
-    ).
+        reason = DATA(reason) ).
     IF code <> 200.
       out->write( |HTTP request failure { code }: { reason }| ).
-      RAISE EXCEPTION TYPE lcx_error.
+      RAISE EXCEPTION NEW lcx_error( ).
     ENDIF.
 
     result = client->response->get_cdata( ).
@@ -522,7 +532,7 @@ CLASS ag_standalone IMPLEMENTATION.
   METHOD fail_on_nonzero_subrc.
     IF sy-subrc <> 0.
       out->write( message ).
-      RAISE EXCEPTION TYPE lcx_error.
+      RAISE EXCEPTION NEW lcx_error( ).
     ENDIF.
   ENDMETHOD.
 
@@ -532,7 +542,7 @@ CLASS ag_standalone IMPLEMENTATION.
     CALL FUNCTION 'RPY_PROGRAM_INSERT'
       EXPORTING
         development_class = '$TMP'
-        program_name      = 'ZABAPGIT_STANDALONE'
+        program_name      = program
         title_string      = 'abapGit Standalone'
         suppress_dialog   = abap_true
       TABLES
@@ -553,7 +563,7 @@ CLASS ag_standalone IMPLEMENTATION.
 
     CALL FUNCTION 'RPY_PROGRAM_UPDATE'
       EXPORTING
-        program_name     = 'ZABAPGIT_STANDALONE'
+        program_name     = program
       TABLES
         source_extended  = source_lines
       EXCEPTIONS
@@ -569,12 +579,12 @@ CLASS ag_standalone IMPLEMENTATION.
 
   METHOD validate_and_split_source.
 
-    IF substring( val = source len = 26 ) <> `REPORT zabapgit_standalone`.
+    IF substring( val = source
+                  len = 26 ) <> `REPORT zabapgit_standalone`.
       out->write( `Did not retrieve expected abapGit standalone source` ).
-      RAISE EXCEPTION TYPE lcx_error.
+      RAISE EXCEPTION NEW lcx_error( ).
     ENDIF.
 
-    DATA source_lines TYPE t_source_lines.
     SPLIT source AT cl_abap_char_utilities=>newline INTO TABLE result.
 
   ENDMETHOD.
@@ -584,9 +594,49 @@ CLASS ag_standalone IMPLEMENTATION.
 
     SELECT SINGLE @abap_true FROM tadir
       WHERE obj_name = @obj_name
-      INTO  @result.
+      INTO @result.
 
   ENDMETHOD.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+"! Creates a custom ZABAPGIT_STANDALONE variant to pull abapGit
+"!
+"! A cleaner solution would be to dynamically execute the API from
+"! within it, but there seems to be an ABAP limitation that an
+"! interface parameter MUST be of type REF TO that_interface.  ABAP
+"! dumps if we pass something of type REF TO a class that implements
+"! the interface, and ABAP can't cast to a dynamic ref to interface.
+CLASS abapgit_full DEFINITION CREATE PUBLIC.
+*--------------------------------------------------------------------*
+
+  PUBLIC SECTION.
+    METHODS execute.
+
+  PROTECTED SECTION.
+
+  PRIVATE SECTION.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS abapgit_full IMPLEMENTATION.
+*--------------------------------------------------------------------*
+
+  METHOD execute.
+
+    out = output=>get_instance( ).
+
+    out->write( `Fetching abapGit` ).
+
+
+    out->add_to_last( ' done.' ).
+
+  ENDMETHOD.
+
 
 ENDCLASS.
 
@@ -1713,8 +1763,6 @@ CLASS sslcert IMPLEMENTATION.
 
   METHOD execute.
 
-    DATA strust_error TYPE REF TO zcx_certi_strust.
-
     out = output=>get_instance( ).
 
     IF exists( host ).
@@ -1738,25 +1786,25 @@ CLASS sslcert IMPLEMENTATION.
     "===================================
     " HTTPS GET
     "===================================
-    DATA http_client TYPE REF TO if_http_client.
     cl_http_client=>create_by_url( EXPORTING  url    = `https://` && host
-                                   IMPORTING  client = http_client
+                                   IMPORTING  client = DATA(http_client)
                                    EXCEPTIONS OTHERS = 1 ).
 
-    DATA request TYPE REF TO if_http_request.
-    request = http_client->request.
+    DATA(request) = http_client->request.
     request->set_method( 'GET' ).
     request->set_version( if_http_request=>co_protocol_version_1_1 ). " HTTP 1.0 or 1.1
     http_client->send( EXCEPTIONS OTHERS = 1 ).
     DATA return_code TYPE i.
     DATA content     TYPE string.
-    DATA: reason TYPE string.
+    DATA reason TYPE string.
     http_client->receive( EXCEPTIONS OTHERS = 1 ).
-    http_client->response->get_status( IMPORTING code = return_code reason = reason ).
+    http_client->response->get_status( IMPORTING code   = return_code
+                                                 reason = reason ).
     IF return_code <> 200 AND return_code <> 500.
       out->write( |Could not reach host { host }, returned { return_code }| ).
       RETURN.
     ENDIF.
+
     content = http_client->response->get_cdata( ).
     http_client->close( EXCEPTIONS OTHERS = 1 ).
 
@@ -1773,7 +1821,7 @@ CLASS sslcert IMPLEMENTATION.
         strust->update( ).
         COMMIT WORK.
 
-      CATCH zcx_certi_strust INTO strust_error.
+      CATCH zcx_certi_strust INTO DATA(strust_error).
         MESSAGE strust_error TYPE 'I' DISPLAY LIKE 'E'.
         RETURN.
     ENDTRY.
@@ -1792,14 +1840,13 @@ CLASS sslcert IMPLEMENTATION.
         DATA(certificates) = strust->get_certificate_list( ).
 
         LOOP AT certificates TRANSPORTING NO FIELDS WHERE subject CS host.
-          "No problem
         ENDLOOP.
         IF sy-subrc = 0.
           result = abap_true.
         ENDIF.
 
       CATCH zcx_certi_strust INTO DATA(error).
-        out->write( 'SSL existence check failed' ).
+        out->write( |SSL existence check failed: { error->get_text( ) }| ).
     ENDTRY.
 
   ENDMETHOD.
@@ -1829,8 +1876,6 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
 
   PUBLIC SECTION.
 
-
-
     CONSTANTS: BEGIN OF c_date_format,
                  dmy_dot   TYPE xudatfm VALUE '1',
                  mdy_slash TYPE xudatfm VALUE '2',
@@ -1847,29 +1892,29 @@ CLASS user_profile DEFINITION CREATE PUBLIC.
                END OF c_decimal_format.
 
     TYPES: BEGIN OF t_profile,
-             username       TYPE xubname,
-             firstname      TYPE ad_namefir,
-             lastname       TYPE ad_namelas,
-             email          TYPE ad_smtpadr,
-             date_format    TYPE xudatfm,
-             decimal_format TYPE xudcpfm,
-             hide_menu_picture   TYPE abap_bool, "Show picture on main menu
-             show_menu_tcodes    TYPE abap_bool, "Show transaction codes on main menu
+             username          TYPE xubname,
+             firstname         TYPE ad_namefir,
+             lastname          TYPE ad_namelas,
+             email             TYPE ad_smtpadr,
+             date_format       TYPE xudatfm,
+             decimal_format    TYPE xudcpfm,
+             hide_menu_picture TYPE abap_bool, "Show picture on main menu
+             show_menu_tcodes  TYPE abap_bool, "Show transaction codes on main menu
            END OF t_profile.
 
     METHODS execute IMPORTING profile TYPE t_profile.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    DATA: out TYPE REF TO output.
+    DATA out TYPE REF TO output.
     METHODS update_user
       IMPORTING
-        i_profile TYPE user_profile=>t_profile
+        i_profile TYPE t_profile
       RAISING
         lcx_error.
     METHODS update_menu
       IMPORTING
-        i_profile TYPE user_profile=>t_profile
+        i_profile TYPE t_profile
       RAISING
         lcx_error.
 
@@ -1884,10 +1929,10 @@ CLASS user_profile IMPLEMENTATION.
 
     DATA: address   TYPE bapiaddr3,
           addressx  TYPE bapiaddr3x,
-          return    TYPE STANDARD TABLE OF bapiret2,
+          return    TYPE STANDARD TABLE OF bapiret2 WITH EMPTY KEY,
           defaults  TYPE bapidefaul,
           defaultsx TYPE bapidefax,
-          addsmtp   TYPE STANDARD TABLE OF bapiadsmtp.
+          addsmtp   TYPE STANDARD TABLE OF bapiadsmtp WITH EMPTY KEY.
 
     out = NEW output( ).
 
@@ -1916,10 +1961,10 @@ CLASS user_profile IMPLEMENTATION.
 
     DATA address TYPE bapiaddr3.
     DATA addressx TYPE bapiaddr3x.
-    DATA return TYPE STANDARD TABLE OF bapiret2.
+    DATA return TYPE bapirettab. "STANDARD TABLE OF bapiret2." WITH NON-UNIQUE KEY table_line.
     DATA defaults TYPE bapidefaul.
     DATA defaultsx TYPE bapidefax.
-    DATA addsmtp TYPE STANDARD TABLE OF bapiadsmtp.
+    DATA addsmtp TYPE suid_tt_bapiadsmtp. "STANDARD TABLE OF bapiadsmtp WITH NON-UNIQUE KEY table_line.
 
     defaults-datfm  = i_profile-date_format.
     defaultsx-datfm = i_profile-date_format.
@@ -2065,8 +2110,7 @@ CLASS main IMPLEMENTATION.
 
     sslhosts = VALUE #(
         ( `github.com` )
-        ( `github.io` )
-    ).
+        ( `github.io` ) ).
 
     INCLUDE zdevsysinit_params IF FOUND.
 
@@ -2092,9 +2136,9 @@ CLASS main IMPLEMENTATION.
     IF p_rfcdst = abap_true.
 
       NEW rfc_destination( )->execute(
-        i_name  = 'GITHUB'
-        i_user  = github_user
-        i_token = github_token ).
+        name  = 'GITHUB'
+        user  = github_user
+        token = github_token ).
 
     ENDIF.
 
@@ -2139,9 +2183,9 @@ CLASS main IMPLEMENTATION.
     LOOP AT repos REFERENCE INTO DATA(repo).
 
       repo_importer->execute(
-        i_name    = repo->name
-        i_package = repo->package
-        i_url     = repo->url ).
+        name    = repo->name
+        package = repo->package
+        url     = repo->url ).
 
     ENDLOOP.
 
@@ -2189,21 +2233,23 @@ CLASS initialization IMPLEMENTATION.
       p_certi = abap_true.
     ENDIF.
 
-    SELECT SINGLE progname FROM reposrc INTO @DATA(dummy)
-          WHERE progname = 'ZABAPGIT_STANDALONE'.
-    p_abapgt = boolc( sy-subrc <> 0 ).
+    SELECT SINGLE @abap_true
+           FROM reposrc
+           WHERE progname = 'ZABAPGIT_STANDALONE'
+           INTO @DATA(exists).
+
+    p_abapgt = xsdbool( exists = abap_false ).
 
   ENDMETHOD.
 
 
   METHOD check_and_update_texts.
 
-    DATA texts TYPE STANDARD TABLE OF textpool.
+    DATA texts TYPE STANDARD TABLE OF textpool WITH EMPTY KEY.
 
     READ TEXTPOOL sy-repid INTO texts.
 
-    READ TABLE texts WITH KEY id = 'S' TRANSPORTING NO FIELDS.
-    IF sy-subrc <> 0.
+    IF NOT line_exists( texts[ id = 'S' ] ).
       insert_selection_texts( ).
       MESSAGE 'Texts updated, please restart program.' TYPE 'W' DISPLAY LIKE 'W'.
     ENDIF.
@@ -2213,7 +2259,7 @@ CLASS initialization IMPLEMENTATION.
 
   METHOD insert_selection_texts.
 
-    DATA texts TYPE STANDARD TABLE OF textpool.
+    DATA texts TYPE STANDARD TABLE OF textpool WITH EMPTY KEY.
 
     texts = VALUE #(
       ( id = 'R' entry = 'Setup Dev system' length = '16' )
@@ -2223,8 +2269,7 @@ CLASS initialization IMPLEMENTATION.
       ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
       ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos'                    length = '18' )
       ( id = 'S' key = 'P_RFCDST'  entry = '        Set up GitHub RFC Destination' length = '37' )
-      ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                  length = '21' )
-    ).
+      ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                  length = '21' ) ).
 
     INSERT TEXTPOOL sy-repid FROM texts.
 
@@ -2234,7 +2279,7 @@ CLASS initialization IMPLEMENTATION.
   METHOD is_default_user_name.
 
     DATA: address TYPE bapiaddr3,
-          return  TYPE STANDARD TABLE OF bapiret2.
+          return  TYPE STANDARD TABLE OF bapiret2 WITH EMPTY KEY.
 
     CALL FUNCTION 'BAPI_USER_GET_DETAIL'
       EXPORTING
@@ -2287,7 +2332,6 @@ CLASS ltc_ag_standalone DEFINITION FINAL FOR TESTING
 
   PRIVATE SECTION.
     DATA report_lines TYPE STANDARD TABLE OF string WITH EMPTY KEY.
-    CLASS-DATA source TYPE string.
 
     METHODS setup.
 
@@ -2315,7 +2359,8 @@ CLASS ltc_ag_standalone IMPLEMENTATION.
 
   METHOD response_content_ok.
     source = get_source( ).
-    DATA(header) = substring( val = source len = 11 ).
+    DATA(header) = substring( val = source
+                              len = 11 ).
     cl_abap_unit_assert=>assert_equals( act = header
                                         exp = `MIT License` ).
   ENDMETHOD.
@@ -2325,12 +2370,13 @@ CLASS ltc_ag_standalone IMPLEMENTATION.
 
     DATA(local_source) = |REPORT zabapgit_standalone.\n{ get_source( ) }|.
 
-    DATA(source_lines) = validate_and_split_source( local_source ).
+    source_lines = validate_and_split_source( local_source ).
 
-    insert_report( source_lines ).
+    insert_report( 'FOO' ).
 
     cl_abap_unit_assert=>assert_not_initial( report_lines ).
-    cl_abap_unit_assert=>assert_table_contains( line = `SOFTWARE.` table = report_lines ).
+    cl_abap_unit_assert=>assert_table_contains( line  = `SOFTWARE.`
+                                                table = report_lines ).
 
   ENDMETHOD.
 
@@ -2389,10 +2435,9 @@ CLASS ltc_rfcdest IMPLEMENTATION.
     td_exists = abap_false.
 
     execute(
-      i_name  = ''
-      i_user  = ''
-      i_token = ''
-    ).
+      name  = ''
+      user  = ''
+      token = '' ).
 
     cl_abap_unit_assert=>assert_true( created ).
 
@@ -2402,10 +2447,9 @@ CLASS ltc_rfcdest IMPLEMENTATION.
   METHOD no_create_if_exists.
     td_exists = abap_true.
     execute(
-      i_name  = ''
-      i_user  = ''
-      i_token = ''
-    ).
+      name  = ''
+      user  = ''
+      token = '' ).
     cl_abap_unit_assert=>assert_false( created ).
   ENDMETHOD.
 
@@ -2415,11 +2459,10 @@ CLASS ltc_rfcdest IMPLEMENTATION.
     td_exists = abap_true.
 
     execute(
-      i_name  = ''
-      i_user  = ''
-      i_token = ''
-      i_reset = abap_true
-    ).
+      name  = ''
+      user  = ''
+      token = ''
+      reset = abap_true ).
 
     cl_abap_unit_assert=>assert_true( deleted ).
     cl_abap_unit_assert=>assert_true( created ).
