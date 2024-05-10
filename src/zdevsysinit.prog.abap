@@ -272,37 +272,15 @@ CLASS repo DEFINITION CREATE PUBLIC.
 
     METHODS execute IMPORTING name    TYPE string
                               package TYPE devclass
-                              url     TYPE string.
+                              url     TYPE string
+                    RAISING
+                      lcx_error.
     METHODS constructor RAISING lcx_error.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
 
     TYPES t_value TYPE c LENGTH 12.
-    TYPES t_sha1    TYPE c LENGTH 40.
-
-    TYPES t_languages TYPE STANDARD TABLE OF laiso WITH EMPTY KEY.
-    TYPES:
-      BEGIN OF t_requirement,
-        component   TYPE tdevc-dlvunit,
-        min_release TYPE saprelease,
-        min_patch   TYPE sappatchlv,
-      END OF t_requirement.
-
-    TYPES t_requirements TYPE STANDARD TABLE OF t_requirement WITH EMPTY KEY.
-
-    TYPES:
-      BEGIN OF t_dot_abapgit,
-        master_language       TYPE spras,
-        i18n_languages        TYPE t_languages,
-        use_lxe               TYPE abap_bool,
-        starting_folder       TYPE string,
-        folder_logic          TYPE string,
-        ignore                TYPE STANDARD TABLE OF string WITH EMPTY KEY,
-        requirements          TYPE t_requirements,
-        version_constant      TYPE string,
-        abap_language_version TYPE string,
-      END OF t_dot_abapgit.
 
     TYPES:
       BEGIN OF t_local_settings,
@@ -316,12 +294,13 @@ CLASS repo DEFINITION CREATE PUBLIC.
         labels                       TYPE string,
         transport_request            TYPE trkorr,
         customizing_request          TYPE trkorr,
+        flow                         TYPE abap_bool,
       END OF t_local_settings.
 
     TYPES: BEGIN OF t_repo_xml,
              url             TYPE string,
              branch_name     TYPE string,
-             selected_commit TYPE t_sha1,
+             selected_commit TYPE zif_abapgit_git_definitions=>ty_sha1,
              package         TYPE devclass,
              created_by      TYPE syuname,
              created_at      TYPE timestampl,
@@ -329,19 +308,22 @@ CLASS repo DEFINITION CREATE PUBLIC.
              deserialized_at TYPE timestampl,
              offline         TYPE abap_bool,
              switched_origin TYPE string,
-             dot_abapgit     TYPE t_dot_abapgit,
+             dot_abapgit     TYPE zif_abapgit_dot_abapgit=>ty_dot_abapgit,
              head_branch     TYPE string,   " HEAD symref of the repo, master branch
              local_settings  TYPE t_local_settings,
            END OF t_repo_xml.
 
-    TYPES BEGIN OF t_repo.
-    TYPES key TYPE t_value.
-    INCLUDE TYPE t_repo_xml.
-    TYPES END OF t_repo.
+    TYPES: BEGIN OF t_repo,
+             key TYPE t_value.
+             INCLUDE TYPE t_repo_xml.
+    TYPES: END OF t_repo.
 
     TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
 
-    DATA repos TYPE t_repos.
+*    DATA repos TYPE t_repos.
+
+    METHODS get_repos RETURNING VALUE(result) TYPE t_repos
+                      RAISING lcx_error.
 
 ENDCLASS.
 
@@ -351,17 +333,6 @@ CLASS repo IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD constructor.
-
-    DATA repo TYPE REF TO object.
-
-    TRY.
-        CALL METHOD ('ZCL_ABAPGIT_PERSIST_FACTORY')=>get_repo RECEIVING ri_repo = repo.
-        CALL METHOD repo->('LIST') RECEIVING rt_repos = repos.
-
-      CATCH cx_sy_dyn_call_illegal_class.
-        out->write( `Cannot pull repos, requires abapGit developer version` ).
-        RAISE EXCEPTION NEW lcx_error( ).
-    ENDTRY.
 
   ENDMETHOD.
 
@@ -379,45 +350,107 @@ CLASS repo IMPLEMENTATION.
                 WITH EMPTY KEY.
     DATA messages TYPE tty_log_out.
 
-
-    DATA repo TYPE REF TO object. "zcl_abapgit_repo_online
     DATA repo_srv TYPE REF TO object. "zif_abapgit_repo_srv
     DATA log TYPE REF TO object. "zif_abapgit_log
     DATA background TYPE REF TO object. "zif_abapgit_background
+    DATA error TYPE REF TO cx_static_check.
+
+    DATA(repos) = get_repos( ).
 
     LOOP AT repos INTO DATA(repo_data) WHERE package = package.
-      out->write( |Package { package } already used in repo { repo_data-local_settings-display_name }| ).
-      RETURN.
+      IF repo_data-local_settings-display_name <> name.
+        out->write( |Package { package } already used in repo { repo_data-local_settings-display_name }| ).
+        RETURN.
+      ENDIF.
     ENDLOOP.
+
+    DATA(exists) = xsdbool( sy-subrc = 0 ).
 
     CALL METHOD ('ZCL_ABAPGIT_REPO_SRV')=>get_instance RECEIVING ri_srv = repo_srv.
 
+    "We've got to confuse the compiler to make sure it doens't notice a different technical type
+
+    DATA repo TYPE REF TO object. "zcl_abapgit_repo_online
+    DATA dref TYPE REF TO data.
+    CREATE DATA dref TYPE REF TO ('ZIF_ABAPGIT_REPO').
+    dref->* ?= repo.
+    ASSIGN dref->* TO FIELD-SYMBOL(<if_repo>).
+
+    IF exists = abap_true.
+
+      TRY.
+
+          CALL METHOD repo_srv->(`ZIF_ABAPGIT_REPO_SRV~GET`)
+            EXPORTING
+              iv_key  = repo_data-key
+            RECEIVING
+              ri_repo = <if_repo>.
+
+        CATCH cx_static_check INTO error.  "zcx_abapgit_exception
+          out->write( |Open repo { name } failed: { error->get_text( ) }| ).
+      ENDTRY.
+
+    ELSE.
+
+      TRY.
+
+          "Needed in order to cast return parameter to correct type
+          CREATE OBJECT repo TYPE ('ZCL_ABAPGIT_REPO_ONLINE')
+            EXPORTING is_data = VALUE t_repo( key = 'DUMMY' ).
+
+          CALL METHOD repo_srv->(`ZIF_ABAPGIT_REPO_SRV~NEW_ONLINE`)
+            EXPORTING
+              iv_url          = url
+              iv_package      = package
+              iv_display_name = name
+            RECEIVING
+              ri_repo         = <if_repo>.
+
+*        repo = <repo>.
+
+          out->write( |Repo { name } created| ).
+        CATCH cx_static_check INTO error.
+          out->write( |Create repo { name } failed: { error->get_text( ) }| ).
+      ENDTRY.
+
+    ENDIF.
+
+    CREATE OBJECT log TYPE (`ZCL_ABAPGIT_LOG`).
+
+    CREATE OBJECT background TYPE (`ZCL_ABAPGIT_BACKGROUND_PULL`).
+
+    CREATE DATA dref TYPE REF TO ('ZCL_ABAPGIT_REPO_ONLINE').
+    dref->* ?= <if_repo>.
+    ASSIGN dref->* TO FIELD-SYMBOL(<cl_repo>).
+
+    DATA dr_log TYPE REF TO data.
+    CREATE DATA dr_log TYPE REF TO ('ZCL_ABAPGIT_LOG').
+    dr_log->* ?= log.
+    ASSIGN dr_log->* TO FIELD-SYMBOL(<log>).
+
+    CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
+      EXPORTING
+        io_repo = <cl_repo>
+        ii_log  = <log>.
+
+    CALL METHOD log->(`ZIF_ABAPGIT_LOG~GET_MESSAGES`) RECEIVING rt_msg = messages.
+    LOOP AT messages INTO DATA(message).
+      out->write( message-text ).
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD get_repos.
+
+    DATA repo TYPE REF TO object.
+
     TRY.
+        CALL METHOD ('ZCL_ABAPGIT_PERSIST_FACTORY')=>get_repo RECEIVING ri_repo = repo.
+        CALL METHOD repo->('ZIF_ABAPGIT_PERSIST_REPO~LIST') RECEIVING rt_repos = result.
 
-        CALL METHOD repo_srv->(`NEW_ONLINE`)
-          EXPORTING
-            iv_url          = url
-            iv_package      = package
-            iv_display_name = name
-          RECEIVING
-            ro_repo         = repo.
-
-        out->write( |Repo { name } created| ).
-
-        CREATE OBJECT log TYPE (`ZCL_ABAPGIT_LOG`).
-
-        CREATE OBJECT background TYPE (`ZCL_ABAPGIT_BACKGROUND_PULL`).
-
-        CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
-          EXPORTING
-            io_repo = repo
-            ii_log  = log.
-
-        CALL METHOD log->(`GET_MESSAGES`) RECEIVING rt_msg = messages.
-        out->write( messages ).
-
-      CATCH cx_static_check INTO DATA(error).  "zcx_abapgit_exception
-        out->write( |Create repo { name } failed: { error->get_text( ) }| ).
+      CATCH cx_sy_dyn_call_illegal_class.
+        out->write( `Cannot pull repos, requires abapGit developer version` ).
+        RAISE EXCEPTION NEW lcx_error( ).
     ENDTRY.
 
   ENDMETHOD.
@@ -698,7 +731,7 @@ CLASS abapgit_full IMPLEMENTATION.
     add( `CLASS repo IMPLEMENTATION.` ).
     add( `  METHOD constructor.` ).
     add( `    TRY.` ).
-    add( `        CALL METHOD ('\PROGRAM=ZDEVSYSINIT\CLASS=OUTPUT')=>('GET_INSTANCE') RECEIVING result = out.` ).
+    add( |        CALL METHOD ('\\PROGRAM={ sy-repid }\\CLASS=OUTPUT')=>('GET_INSTANCE') RECEIVING result = out.| ).
     add( `      CATCH cx_sy_dyn_call_illegal_class.` ).
     add( |        MESSAGE `Cannot find ZDEVSYSINIT` TYPE 'E'.| ).
     add( `        RAISE EXCEPTION NEW zcx_abapgit_exception( ).` ).
