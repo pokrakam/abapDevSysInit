@@ -9,7 +9,8 @@ SELECTION-SCREEN BEGIN OF BLOCK rfc WITH FRAME.
 SELECTION-SCREEN END OF BLOCK rfc.
 
 PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
-PARAMETERS p_abapgt TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+PARAMETERS p_agstd TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+PARAMETERS p_agdev TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 
 
@@ -425,13 +426,17 @@ ENDCLASS.
 
 
 *--------------------------------------------------------------------*
-CLASS ag_standalone DEFINITION CREATE PUBLIC.
+CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
     METHODS execute RAISING lcx_error.
 
   PROTECTED SECTION.
+
+*    TYPES: BEGIN OF t_source_line,
+*             line TYPE abaptxt255,
+*           END OF t_source_line.
 
     TYPES t_source_lines TYPE STANDARD TABLE OF abaptxt255 WITH EMPTY KEY.
 
@@ -451,16 +456,17 @@ CLASS ag_standalone DEFINITION CREATE PUBLIC.
     METHODS validate_and_split_source IMPORTING source        TYPE string
                                       RETURNING VALUE(result) TYPE t_source_lines
                                       RAISING   lcx_error.
+    METHODS exists IMPORTING obj_name      TYPE sobj_name
+                   RETURNING VALUE(result) TYPE abap_bool.
+
   PRIVATE SECTION.
     METHODS fail_on_nonzero_subrc IMPORTING message TYPE string
                                   RAISING   lcx_error.
-    METHODS exists IMPORTING obj_name      TYPE sobj_name
-                   RETURNING VALUE(result) TYPE abap_bool.
 ENDCLASS.
 
 
 *--------------------------------------------------------------------*
-CLASS ag_standalone IMPLEMENTATION.
+CLASS abapgit_standalone IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD execute.
@@ -594,8 +600,8 @@ CLASS ag_standalone IMPLEMENTATION.
 
   METHOD exists.
 
-    SELECT SINGLE @abap_true FROM tadir
-      WHERE obj_name = @obj_name
+    SELECT SINGLE @abap_true FROM reposrc
+      WHERE progname = @obj_name
       INTO @result.
 
   ENDMETHOD.
@@ -607,19 +613,35 @@ ENDCLASS.
 "! Creates a custom ZABAPGIT_STANDALONE variant to pull abapGit
 "!
 "! A cleaner solution would be to dynamically execute the API from
-"! within it, but there seems to be an ABAP limitation that an
-"! interface parameter MUST be of type REF TO that_interface.  ABAP
+"! within ZABAPGIT_STANDALONE, but there seems to be an ABAP limitation
+"! that an interface parameter MUST be of type REF TO that_interface.
+"!
+"! ABAP can't create a dynamic element of type REF TO interface, and
 "! dumps if we pass something of type REF TO a class that implements
-"! the interface, and ABAP can't cast to a dynamic ref to interface.
-CLASS abapgit_full DEFINITION CREATE PUBLIC.
+"! the interface :(
+"!
+CLASS abapgit_full DEFINITION INHERITING FROM abapgit_standalone CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
   PUBLIC SECTION.
-    METHODS execute.
+    METHODS execute REDEFINITION.
 
   PROTECTED SECTION.
+    METHODS find IMPORTING string        TYPE string
+                 RETURNING VALUE(result) TYPE i
+                 RAISING   lcx_error.
+    METHODS insert_pull_code RAISING  lcx_error.
 
   PRIVATE SECTION.
+
+    CONSTANTS report_name TYPE progname VALUE 'ZTMP_ABAPGIT_PULL'.
+
+    METHODS get_standalone RETURNING VALUE(result) TYPE t_source_lines
+                           RAISING   lcx_error.
+    METHODS write_temporary_program RAISING lcx_error.
+    METHODS run_it.
+    METHODS delete_temporary_program RAISING lcx_error.
+    METHODS add IMPORTING line TYPE string.
 
 ENDCLASS.
 
@@ -634,15 +656,200 @@ CLASS abapgit_full IMPLEMENTATION.
 
     out->write( `Fetching abapGit` ).
 
+    source_lines = get_standalone( ).
+    insert_pull_code( ).
+    write_temporary_program( ).
+    run_it( ).
+    delete_temporary_program( ).
 
     out->add_to_last( ' done.' ).
 
   ENDMETHOD.
 
 
+  METHOD get_standalone.
+
+    READ REPORT 'ZABAPGIT_STANDALONE' INTO result.
+    IF sy-subrc <> 0.
+      out->write( `Could not read ZABAPGIT_STANDALONE` ).
+      RAISE EXCEPTION NEW lcx_error( ).
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD insert_pull_code.
+
+    DATA(line) = find( 'INITIALIZATION.' ).
+    DELETE source_lines FROM line.
+
+    add( `CLASS repo DEFINITION CREATE PUBLIC.` ).
+    add( `  PUBLIC SECTION.` ).
+    add( `    METHODS execute IMPORTING name    TYPE string` ).
+    add( `                              package TYPE devclass` ).
+    add( `                              url     TYPE string.` ).
+    add( `    METHODS constructor RAISING zcx_abapgit_exception.` ).
+    add( `  PRIVATE SECTION.` ).
+    add( `    DATA out TYPE REF TO object.` ).
+    add( `    METHODS write IMPORTING data TYPE any.` ).
+    add( `    METHODS add_to_last  IMPORTING data TYPE any.` ).
+    add( `ENDCLASS.` ).
+    add( `` ).
+    add( `CLASS repo IMPLEMENTATION.` ).
+    add( `  METHOD constructor.` ).
+    add( `    TRY.` ).
+    add( `        CALL METHOD ('\PROGRAM=ZDEVSYSINIT\CLASS=OUTPUT')=>('GET_INSTANCE') RECEIVING result = out.` ).
+    add( `      CATCH cx_sy_dyn_call_illegal_class.` ).
+    add( |        MESSAGE `Cannot find ZDEVSYSINIT` TYPE 'E'.| ).
+    add( `        RAISE EXCEPTION NEW zcx_abapgit_exception( ).` ).
+    add( `    ENDTRY.` ).
+    add( `  ENDMETHOD.` ).
+    add( `  METHOD execute.` ).
+    add( `    DATA repo TYPE REF TO zcl_abapgit_repo_online.` ).
+    add( `    DATA log TYPE REF TO zif_abapgit_log.` ).
+    add( `    TRY.` ).
+    add( `        DATA(repo_persistence) = zcl_abapgit_persist_factory=>get_repo( ).` ).
+    add( `        DATA(repos) = repo_persistence->list( ).` ).
+    add( `      CATCH zcx_abapgit_exception.` ).
+    add( |        write( `Error getting list of repos` ).| ).
+    add( `    ENDTRY.` ).
+    add( `    LOOP AT repos INTO DATA(repo_data) WHERE package = package.` ).
+    add( `      IF repo_data-local_settings-display_name <> name.` ).
+    add( `        write( |Package { package } already used in repo { repo_data-local_settings-display_name }| ).` ).
+    add( `        RETURN.` ).
+    add( `      ENDIF.` ).
+    add( `    ENDLOOP.` ).
+    add( `    DATA(exists) = xsdbool( sy-subrc = 0 ).` ).
+    add( `    DATA(repo_srv) = zcl_abapgit_repo_srv=>get_instance( ).` ).
+    add( `    IF exists = abap_true.` ).
+    add( `      TRY.` ).
+    add( `          repo ?= repo_srv->get( iv_key = repo_data-key ).` ).
+    add( `        CATCH cx_static_check INTO DATA(error).  "zcx_abapgit_exception` ).
+    add( `          write( |Create repo { name } failed: { error->get_text( ) }| ).` ).
+    add( `      ENDTRY.` ).
+    add( `    ELSE.` ).
+    add( `      TRY.` ).
+    add( `          repo ?= repo_srv->new_online(` ).
+    add( `            iv_url          = url` ).
+    add( `            iv_package      = package` ).
+    add( `            iv_display_name = name ).` ).
+    add( `          write( |Repo { name } created| ).` ).
+    add( `        CATCH cx_static_check INTO error.  "zcx_abapgit_exception` ).
+    add( `          write( |Create repo { name } failed: { error->get_text( ) }| ).` ).
+    add( `      ENDTRY.` ).
+    add( `    ENDIF.` ).
+    add( `    log ?= NEW zcl_abapgit_log( ).` ).
+    add( `    DATA background TYPE REF TO zif_abapgit_background.` ).
+    add( `    background = NEW zcl_abapgit_background_pull( ).` ).
+    add( `    write( |Pulling { name }| ).` ).
+    add( `    TRY.` ).
+    add( `        background->run(` ).
+    add( `          io_repo = repo` ).
+    add( `          ii_log  = log ).` ).
+    add( `      CATCH zcx_abapgit_exception INTO DATA(exc).` ).
+    add( `        WRITE exc->get_text( ).` ).
+    add( `    ENDTRY.` ).
+    add( `  ENDMETHOD.` ).
+    add( `  METHOD write.` ).
+    add( `    CALL METHOD out->('WRITE') EXPORTING data = data.` ).
+    add( `  ENDMETHOD.` ).
+    add( `  METHOD add_to_last.` ).
+    add( `    CALL METHOD out->('ADD_TO_LAST') EXPORTING data = data.` ).
+    add( `  ENDMETHOD.` ).
+    add( `ENDCLASS.` ).
+    add( `` ).
+    add( `START-OF-SELECTION.` ).
+    add( `  TRY.` ).
+    add( `      DATA(repo_importer) = NEW repo( ).` ).
+    add( `    CATCH zcx_abapgit_exception.` ).
+    add( `      MESSAGE 'Failed - could not find ZDEVSYSINIT' TYPE 'E'.` ).
+    add( `  ENDTRY.` ).
+    add( `  repo_importer->execute(` ).
+    add( |    name    = `abapGit`| ).
+    add( |    package = `$ZABAPGIT`| ).
+    add( |    url     = `https://github.com/abapGit/abapGit` ).| ).
+
+  ENDMETHOD.
+
+
+  METHOD write_temporary_program.
+
+    out->write( `Creating temporary program...` ).
+    IF exists( report_name ).
+      update_report( report_name ).
+    ELSE.
+      insert_report( report_name ).
+    ENDIF.
+    out->add_to_last( ' done.' ).
+
+  ENDMETHOD.
+
+
+  METHOD run_it.
+    out->write( `Pulling abapGit full version...` ).
+    SUBMIT (report_name) AND RETURN.
+    out->add_to_last( ' done.' ).
+  ENDMETHOD.
+
+
+  METHOD delete_temporary_program.
+
+*    out->write( `Deleting temporary program...` ).
+    DELETE REPORT report_name.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION NEW lcx_error( ).
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD find.
+    READ TABLE source_lines WITH KEY table_line = string TRANSPORTING NO FIELDS.
+    IF sy-tabix = 0.
+      out->write( `Could not find INITIALIZATION section in ZABAPGIT_STANDALONE` ).
+      RAISE EXCEPTION NEW lcx_error( ).
+    ENDIF.
+    result = sy-tabix.
+  ENDMETHOD.
+
+  METHOD add.
+    APPEND line TO source_lines.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_modify_agstandalone DEFINITION FINAL FOR TESTING
+INHERITING FROM abapgit_full
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    METHODS:
+      find_line FOR TESTING RAISING cx_static_check,
+      code_inserted FOR TESTING RAISING cx_static_check.
 ENDCLASS.
 
 
+CLASS ltc_modify_agstandalone IMPLEMENTATION.
+
+  METHOD find_line.
+    DATA(source) = |FOO\nBAR\nMOO|.
+    SPLIT source AT cl_abap_char_utilities=>newline INTO TABLE source_lines.
+
+    cl_abap_unit_assert=>assert_equals( act = find( 'BAR' )
+                                        exp = 2 ).
+  ENDMETHOD.
+
+  METHOD code_inserted.
+    DATA(source) = |FOO\nBAR\nINITIALIZATION.\nMOO\nBOO|.
+    SPLIT source AT cl_abap_char_utilities=>newline INTO TABLE source_lines.
+
+    insert_pull_code( ).
+
+    cl_abap_unit_assert=>assert_true( xsdbool( lines( source_lines ) > 20 ) ).
+  ENDMETHOD.
+
+ENDCLASS.
 *--------------------------------------------------------------------*
 "!
 "! SSL Certificate classes re-used from
@@ -2141,12 +2348,22 @@ CLASS main IMPLEMENTATION.
 
     ENDIF.
 
-    IF p_abapgt = abap_true.
+    IF p_agstd = abap_true.
 
       TRY.
-          NEW ag_standalone( )->execute( ).
+          NEW abapgit_standalone( )->execute( ).
         CATCH lcx_error.
           out->write( `Could not create ZABAPGIT_STANDALONE` ).
+      ENDTRY.
+
+    ENDIF.
+
+    IF p_agdev = abap_true.
+
+      TRY.
+          NEW abapgit_full( )->execute( ).
+        CATCH lcx_error.
+          out->write( `Could not pull ZABAPGIT` ).
       ENDTRY.
 
     ENDIF.
@@ -2228,7 +2445,15 @@ CLASS initialization IMPLEMENTATION.
            WHERE progname = 'ZABAPGIT_STANDALONE'
            INTO @DATA(exists).
 
-    p_abapgt = xsdbool( exists = abap_false ).
+    p_agstd = xsdbool( exists = abap_false ).
+
+    exists = abap_false.
+    SELECT SINGLE @abap_true
+           FROM reposrc
+           WHERE progname = 'ZABAPGIT'
+           INTO @exists.
+
+    p_agdev = xsdbool( exists = abap_false ).
 
   ENDMETHOD.
 
@@ -2254,7 +2479,8 @@ CLASS initialization IMPLEMENTATION.
     texts = VALUE #(
       ( id = 'R' entry = 'Setup Dev system' length = '16' )
       ( id = 'S' key = 'P_USRPFL'  entry = '        Update User Profile'           length = '27' )
-      ( id = 'S' key = 'P_ABAPGT'  entry = '        Get abapGit Standalone'        length = '30' )
+      ( id = 'S' key = 'P_AGSTD'   entry = '        Get abapGit Standalone'        length = '30' )
+      ( id = 'S' key = 'P_AGDEV'   entry = '        Get abapGit Developer Version' length = '37' )
       ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'      length = '32' )
       ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
       ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos'                    length = '18' )
@@ -2313,7 +2539,7 @@ START-OF-SELECTION.
 CLASS ltc_ag_standalone DEFINITION FINAL FOR TESTING
   DURATION SHORT
   RISK LEVEL HARMLESS
-  INHERITING FROM ag_standalone.
+  INHERITING FROM abapgit_standalone.
 *--------------------------------------------------------------------*
 
   PROTECTED SECTION.

@@ -18,7 +18,13 @@
     </item>
     <item>
      <ID>S</ID>
-     <KEY>P_ABAPGT</KEY>
+     <KEY>P_AGDEV</KEY>
+     <ENTRY>Get abapGit Developer Version</ENTRY>
+     <LENGTH>37</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_AGSTD</KEY>
      <ENTRY>Get abapGit Standalone</ENTRY>
      <LENGTH>30</LENGTH>
     </item>
