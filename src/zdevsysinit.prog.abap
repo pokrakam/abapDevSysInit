@@ -12,10 +12,9 @@ PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_agstd TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_agdev TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
-
+*parameters p_repcnf type abap_bool AS CHECKBOX DEFAULT abap_false. "Todo: Overwrite notification text
 
 CLASS output DEFINITION DEFERRED.
-DATA out TYPE REF TO output.
 
 
 *--------------------------------------------------------------------*
@@ -274,7 +273,7 @@ CLASS repo DEFINITION CREATE PUBLIC.
                               package TYPE devclass
                               url     TYPE string
                     RAISING
-                      lcx_error.
+                              lcx_error.
     METHODS constructor RAISING lcx_error.
 
   PROTECTED SECTION.
@@ -320,10 +319,10 @@ CLASS repo DEFINITION CREATE PUBLIC.
 
     TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
 
-*    DATA repos TYPE t_repos.
+    DATA out TYPE REF TO output.
 
     METHODS get_repos RETURNING VALUE(result) TYPE t_repos
-                      RAISING lcx_error.
+                      RAISING   lcx_error.
 
 ENDCLASS.
 
@@ -333,7 +332,7 @@ CLASS repo IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
   METHOD constructor.
-
+    out = output=>get_instance( ).
   ENDMETHOD.
 
 
@@ -388,6 +387,7 @@ CLASS repo IMPLEMENTATION.
 
         CATCH cx_static_check INTO error.  "zcx_abapgit_exception
           out->write( |Open repo { name } failed: { error->get_text( ) }| ).
+          RAISE EXCEPTION NEW lcx_error( ).
       ENDTRY.
 
     ELSE.
@@ -411,6 +411,7 @@ CLASS repo IMPLEMENTATION.
           out->write( |Repo { name } created| ).
         CATCH cx_static_check INTO error.
           out->write( |Create repo { name } failed: { error->get_text( ) }| ).
+          RAISE EXCEPTION NEW lcx_error( ).
       ENDTRY.
 
     ENDIF.
@@ -435,10 +436,13 @@ CLASS repo IMPLEMENTATION.
 
     CALL METHOD log->(`ZIF_ABAPGIT_LOG~GET_MESSAGES`) RECEIVING rt_msg = messages.
     LOOP AT messages INTO DATA(message).
-      out->write( message-text ).
+      IF message-text NS 'no import required'.
+        out->write( message-text ).
+      ENDIF.
     ENDLOOP.
 
   ENDMETHOD.
+
 
   METHOD get_repos.
 
@@ -458,6 +462,34 @@ CLASS repo IMPLEMENTATION.
 ENDCLASS.
 
 
+CLASS ltc_repo DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    METHODS:
+      invalid_repo_fails FOR TESTING RAISING cx_static_check.
+ENDCLASS.
+
+
+CLASS ltc_repo IMPLEMENTATION.
+
+  METHOD invalid_repo_fails.
+    DATA(cut) = NEW repo( ).
+    TRY.
+        cut->execute(
+          name    = 'Test'
+          package = '123'
+          url     = 'http //'
+        ).
+        cl_abap_unit_assert=>fail( 'No exception raised' ).
+      CATCH lcx_error.
+        "As expected
+    ENDTRY.
+
+  ENDMETHOD.
+
+ENDCLASS.
 *--------------------------------------------------------------------*
 CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
@@ -2407,6 +2439,7 @@ CLASS main IMPLEMENTATION.
     ENDIF.
 
     out->write( `Finished.` ).
+    out->display( ).
 
   ENDMETHOD.
 
@@ -2422,10 +2455,14 @@ CLASS main IMPLEMENTATION.
 
     LOOP AT repos REFERENCE INTO DATA(repo).
 
-      repo_importer->execute(
-        name    = repo->name
-        package = repo->package
-        url     = repo->url ).
+      TRY.
+          repo_importer->execute(
+            name    = repo->name
+            package = repo->package
+            url     = repo->url ).
+        CATCH lcx_error.
+          out->write( |Could not pull repo { repo->name }| ).
+      ENDTRY.
 
     ENDLOOP.
 
@@ -2516,7 +2553,7 @@ CLASS initialization IMPLEMENTATION.
       ( id = 'S' key = 'P_AGDEV'   entry = '        Get abapGit Developer Version' length = '37' )
       ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'      length = '32' )
       ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
-      ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos'                    length = '18' )
+      ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos (Overwrite local!)' length = '29' )
       ( id = 'S' key = 'P_RFCDST'  entry = '        Set up GitHub RFC Destination' length = '37' )
       ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                  length = '21' ) ).
 
@@ -2549,8 +2586,6 @@ ENDCLASS.
 INITIALIZATION.
 *--------------------------------------------------------------------*
 
-  out = output=>get_instance( ).
-
   DATA(init) = NEW initialization( ).
   init->check_and_update_texts( ).
   init->propose_parameters( ).
@@ -2560,7 +2595,6 @@ START-OF-SELECTION.
 *--------------------------------------------------------------------*
 
   NEW main( )->run( ).
-  out->display( ).
 
 
 **********************************************************************
@@ -2666,7 +2700,6 @@ CLASS ltc_rfcdest DEFINITION FINAL FOR TESTING
     METHODS create_if_not_exists FOR TESTING RAISING cx_static_check.
     METHODS no_create_if_exists FOR TESTING RAISING cx_static_check.
     METHODS recreate_if_reset FOR TESTING RAISING cx_static_check.
-    METHODS setup.
 
 ENDCLASS.
 
@@ -2675,9 +2708,6 @@ ENDCLASS.
 CLASS ltc_rfcdest IMPLEMENTATION.
 *--------------------------------------------------------------------*
 
-  METHOD setup.
-    out = output=>get_instance( ).
-  ENDMETHOD.
 
   METHOD create_if_not_exists.
 

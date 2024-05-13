@@ -43,8 +43,8 @@
     <item>
      <ID>S</ID>
      <KEY>P_REPOS</KEY>
-     <ENTRY>Pull Repos</ENTRY>
-     <LENGTH>18</LENGTH>
+     <ENTRY>Pull Repos (Overwrite local!)</ENTRY>
+     <LENGTH>37</LENGTH>
     </item>
     <item>
      <ID>S</ID>
