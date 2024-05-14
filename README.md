@@ -11,7 +11,7 @@ Setups and actions that can be configured:
 - Install GitHub SSL certificate (thanks to @sandraros and @mbtools)
 - Install abapGit standalone edition
 - Customize user profile (Name, localization, email address)
-- Pull a list of repos (requires abapGit full version)
+- Pull a list of repos
 
 See projects page to see what's planned
 
