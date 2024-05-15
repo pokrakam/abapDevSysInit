@@ -18,15 +18,21 @@
     </item>
     <item>
      <ID>S</ID>
-     <KEY>P_AGDEV</KEY>
-     <ENTRY>Get abapGit Developer Version</ENTRY>
-     <LENGTH>37</LENGTH>
+     <KEY>P_USRPFL</KEY>
+     <ENTRY>Update User Profile</ENTRY>
+     <LENGTH>27</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>P_AGSTD</KEY>
      <ENTRY>Get abapGit Standalone</ENTRY>
      <LENGTH>30</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_AGXIT</KEY>
+     <ENTRY>Create abapGit Standalone Exit</ENTRY>
+     <LENGTH>38</LENGTH>
     </item>
     <item>
      <ID>S</ID>
@@ -56,13 +62,7 @@
      <ID>S</ID>
      <KEY>P_TOKEN</KEY>
      <ENTRY>GitHub Token</ENTRY>
-     <LENGTH>20</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_USRPFL</KEY>
-     <ENTRY>Update User Profile</ENTRY>
-     <LENGTH>27</LENGTH>
+     <LENGTH>21</LENGTH>
     </item>
    </TPOOL>
   </asx:values>

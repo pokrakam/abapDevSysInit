@@ -10,6 +10,7 @@ SELECTION-SCREEN END OF BLOCK rfc.
 
 PARAMETERS p_certi TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 PARAMETERS p_agstd TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+PARAMETERS p_agxit TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 *parameters p_repcnf type abap_bool AS CHECKBOX DEFAULT abap_false. "Todo: Overwrite notification text
 
@@ -37,7 +38,7 @@ CLASS output DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    CLASS-DATA out TYPE REF TO if_demo_output.
+    CLASS-DATA out TYPE REF TO output.
     TYPES: BEGIN OF t_out,
              date TYPE sydatum,
              time TYPE sy-uzeit,
@@ -113,9 +114,9 @@ CLASS output IMPLEMENTATION.
 
   METHOD get_instance.
     IF out IS INITIAL.
-      out = cl_demo_output=>new( ).
+      out = NEW output( ).
     ENDIF.
-    result = NEW output( ).
+    result = out.
   ENDMETHOD.
 
 
@@ -470,12 +471,14 @@ CLASS repo_import IMPLEMENTATION.
         io_repo = <cl_repo>
         ii_log  = <log>.
 
-    CALL METHOD log->(`ZIF_ABAPGIT_LOG~GET_MESSAGES`) RECEIVING rt_msg = messages.
-    LOOP AT messages INTO DATA(message).
-      IF message-text NS 'no import required'.
-        out->write( message-text ).
-      ENDIF.
-    ENDLOOP.
+    IF 1 = 0. "Todo: Too much output, maybe add a debug mode
+      CALL METHOD log->(`ZIF_ABAPGIT_LOG~GET_MESSAGES`) RECEIVING rt_msg = messages.
+      LOOP AT messages INTO DATA(message).
+        IF message-text NS 'no import required'.
+          out->write( message-text ).
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
 
     out->write( |Pull { name } completed.| ).
 
@@ -528,6 +531,8 @@ CLASS ltc_repo IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+
 *--------------------------------------------------------------------*
 CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
@@ -707,6 +712,170 @@ CLASS abapgit_standalone IMPLEMENTATION.
       WHERE progname = @obj_name
       INTO @result.
 
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+*--------------------------------------------------------------------*
+CLASS abapgit_exit DEFINITION INHERITING FROM abapgit_standalone CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    METHODS execute REDEFINITION.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+    METHODS get_source_lines
+      RETURNING
+        VALUE(result) TYPE t_source_lines.
+
+ENDCLASS.
+
+CLASS abapgit_exit IMPLEMENTATION.
+
+
+  METHOD execute.
+
+    CONSTANTS report_name TYPE sobj_name VALUE 'ZABAPGIT_USER_EXIT'.
+
+    out = output=>get_instance( ).
+
+    source_lines = get_source_lines( ).
+
+    IF exists( report_name ).
+      out->write( `Creating abapGit Standalone Exit...` ).
+      update_report( report_name ).
+    ELSE.
+      out->write( `Updating abapGit Standalone Exit...` ).
+      insert_report( report_name ).
+    ENDIF.
+    out->add_to_last( ' done.' ).
+
+  ENDMETHOD.
+
+
+  METHOD get_source_lines.
+
+    result = VALUE #(
+        ( |CLASS zcl_abapgit_user_exit DEFINITION| )
+        ( |  FINAL| )
+        ( |  CREATE PUBLIC.| )
+        ( || )
+        ( |  PUBLIC SECTION.| )
+        ( |    INTERFACES zif_abapgit_exit.| )
+        ( |  PROTECTED SECTION.| )
+        ( |  PRIVATE SECTION.| )
+        ( |ENDCLASS.| )
+        ( || )
+        ( || )
+        ( |CLASS zcl_abapgit_user_exit IMPLEMENTATION.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~create_http_client.| )
+        ( || )
+        ( |    DATA(lv_host) = zcl_abapgit_url=>host( iv_url ).| )
+        ( || )
+        ( |    DATA(lv_destination) = COND rfcdest( WHEN lv_host CS 'gitlab' THEN 'GITLAB'| )
+        ( |                                         WHEN lv_host CS 'github' THEN 'GITHUB' ).| )
+        ( || )
+        ( |    IF lv_destination IS INITIAL.| )
+        ( |      RETURN.| )
+        ( |    ENDIF.| )
+        ( || )
+        ( |    cl_http_client=>create_by_destination(| )
+        ( |      EXPORTING| )
+        ( |        destination              = lv_destination| )
+        ( |      IMPORTING| )
+        ( |        client                   = ri_client| )
+        ( |      EXCEPTIONS| )
+        ( |        argument_not_found       = 1| )
+        ( |        destination_not_found    = 2| )
+        ( |        destination_no_authority = 3| )
+        ( |        plugin_not_active        = 4| )
+        ( |        internal_error           = 5| )
+        ( |        OTHERS                   = 6 ).| )
+        ( || )
+        ( |    IF sy-subrc <> 0.| )
+        ( |      zcx_abapgit_exception=>raise_t100(  ).| )
+        ( |    ENDIF.| )
+        ( || )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~adjust_display_commit_url.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~adjust_display_filename.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~allow_sap_objects.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_local_host.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_max_parallel_processes.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_proxy_authentication.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_proxy_port.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_proxy_url.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_rfc_server_group.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_supported_data_objects.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_supported_object_types.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~change_tadir.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~custom_serialize_abap_clif.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~deserialize_postprocess.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~determine_transport_request.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~enhance_repo_toolbar.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~get_ci_tests.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~get_ssl_id.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~http_client.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~on_event.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~pre_calculate_repo_status.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~serialize_postprocess.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~validate_before_push.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~wall_message_list.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |  METHOD zif_abapgit_exit~wall_message_repo.| )
+        ( |  ENDMETHOD.| )
+        ( || )
+        ( |ENDCLASS.| )
+    ).
   ENDMETHOD.
 
 ENDCLASS.
@@ -2210,6 +2379,16 @@ CLASS main IMPLEMENTATION.
 
     ENDIF.
 
+    IF p_agxit = abap_true.
+
+      TRY.
+          NEW abapgit_exit( )->execute( ).
+        CATCH lcx_error.
+          out->write( `Could not write ZABAPGIT_USER_EXIT` ).
+      ENDTRY.
+
+    ENDIF.
+
     IF p_agstd = abap_true.
 
       TRY.
@@ -2304,6 +2483,14 @@ CLASS initialization IMPLEMENTATION.
 
     p_agstd = xsdbool( exists = abap_false ).
 
+    CLEAR exists.
+    SELECT SINGLE @abap_true
+           FROM reposrc
+           WHERE progname = 'ZABAPGIT_USER_EXIT'
+           INTO @exists.
+
+    p_agxit = xsdbool( exists = abap_false ).
+
   ENDMETHOD.
 
 
@@ -2315,7 +2502,7 @@ CLASS initialization IMPLEMENTATION.
 
     IF NOT line_exists( texts[ id = 'S' ] ).
       insert_selection_texts( ).
-      MESSAGE 'Texts updated, please restart program.' TYPE 'W' DISPLAY LIKE 'W'.
+      MESSAGE 'Texts updated, please restart program.' TYPE 'W' DISPLAY LIKE 'E'.
     ENDIF.
 
   ENDMETHOD.
@@ -2327,14 +2514,14 @@ CLASS initialization IMPLEMENTATION.
 
     texts = VALUE #(
       ( id = 'R' entry = 'Setup Dev system' length = '16' )
-      ( id = 'S' key = 'P_USRPFL'  entry = '        Update User Profile'           length = '27' )
-      ( id = 'S' key = 'P_AGSTD'   entry = '        Get abapGit Standalone'        length = '30' )
-*      ( id = 'S' key = 'P_AGDEV'   entry = '        Get abapGit Developer Version' length = '37' )
-      ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'      length = '32' )
-      ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                   length = '19' )
-      ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos (Overwrite local!)' length = '29' )
-      ( id = 'S' key = 'P_RFCDST'  entry = '        Set up GitHub RFC Destination' length = '37' )
-      ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                  length = '21' ) ).
+      ( id = 'S' key = 'P_USRPFL'  entry = '        Update User Profile'            length = '27' )
+      ( id = 'S' key = 'P_AGSTD'   entry = '        Get abapGit Standalone'         length = '30' )
+      ( id = 'S' key = 'P_AGXIT'   entry = '        Create abapGit Standalone Exit' length = '38' )
+      ( id = 'S' key = 'P_CERTI'   entry = '        Install SSL Certificates'       length = '32' )
+      ( id = 'S' key = 'P_GHUSER'  entry = '        GitHub User'                    length = '19' )
+      ( id = 'S' key = 'P_REPOS'   entry = '        Pull Repos (Overwrite local!)'  length = '29' )
+      ( id = 'S' key = 'P_RFCDST'  entry = '        Set up GitHub RFC Destination'  length = '37' )
+      ( id = 'S' key = 'P_TOKEN'   entry = '        GitHub Token'                   length = '21' ) ).
 
     INSERT TEXTPOOL sy-repid FROM texts.
 
