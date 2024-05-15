@@ -7,10 +7,11 @@ To automate the repetitive tasks in setting up and personalizing a new
 ABAP Developer Edition or Trial system.
 
 Setups and actions that can be configured: 
+- Customize user profile (Name, localization, email address)
 - Set up RFC Destination with GitHub Personal Access Token
 - Install GitHub SSL certificate (thanks to @sandraros and @mbtools)
 - Install abapGit standalone edition
-- Customize user profile (Name, localization, email address)
+- Create user exit for abapGit standalone to authenticate with GitHub to pull private repos
 - Pull a list of repos
 
 See projects page to see what's planned
