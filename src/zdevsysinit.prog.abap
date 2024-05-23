@@ -179,15 +179,8 @@ CLASS rfc_destination IMPLEMENTATION.
     dest_name = name.
 
     IF check_existence( dest_name ).
-
-      IF reset = abap_true.
-        delete_rfc_destination( ).
-        out->write( |RFC destination { dest_name } deleted| ).
-      ELSE.
-        out->write( |RFC destination { dest_name } already exists, not changed| ).
-        RETURN.
-      ENDIF.
-
+      delete_rfc_destination( ).
+      out->write( |RFC destination { dest_name } deleted| ).
     ENDIF.
 
     out->write( |Creating RFC destination { dest_name }...| ).
@@ -466,10 +459,15 @@ CLASS repo_import IMPLEMENTATION.
     dr_log->* ?= log.
     ASSIGN dr_log->* TO FIELD-SYMBOL(<log>).
 
-    CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
-      EXPORTING
-        io_repo = <cl_repo>
-        ii_log  = <log>.
+    TRY.
+        CALL METHOD background->(`ZIF_ABAPGIT_BACKGROUND~RUN`)
+          EXPORTING
+            io_repo = <cl_repo>
+            ii_log  = <log>.
+      CATCH cx_static_check INTO error.
+        out->write( |Import repo { name } failed: { error->get_text( ) }| ).
+        RAISE EXCEPTION NEW lcx_error( ).
+    ENDTRY.
 
     IF 1 = 0. "Todo: Too much output, maybe add a debug mode
       CALL METHOD log->(`ZIF_ABAPGIT_LOG~GET_MESSAGES`) RECEIVING rt_msg = messages.
@@ -556,7 +554,8 @@ CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 
     METHODS get_source RETURNING VALUE(result) TYPE string
                        RAISING   lcx_error.
-    METHODS insert_report IMPORTING program TYPE sobj_name
+    METHODS insert_report IMPORTING program_name TYPE sobj_name
+                                    program_type TYPE subc DEFAULT '1'
                           RAISING   lcx_error.
     METHODS update_report IMPORTING program TYPE sobj_name
                           RAISING   lcx_error.
@@ -658,7 +657,8 @@ CLASS abapgit_standalone IMPLEMENTATION.
     CALL FUNCTION 'RPY_PROGRAM_INSERT'
       EXPORTING
         development_class = '$TMP'
-        program_name      = program
+        program_name      = program_name
+        program_type      = program_type
         title_string      = 'abapGit Standalone'
         suppress_dialog   = abap_true
       TABLES
@@ -735,18 +735,19 @@ CLASS abapgit_exit IMPLEMENTATION.
 
   METHOD execute.
 
-    CONSTANTS report_name TYPE sobj_name VALUE 'ZABAPGIT_USER_EXIT'.
+    CONSTANTS program_name TYPE sobj_name VALUE 'ZABAPGIT_USER_EXIT'.
 
     out = output=>get_instance( ).
 
     source_lines = get_source_lines( ).
 
-    IF exists( report_name ).
-      out->write( `Creating abapGit Standalone Exit...` ).
-      update_report( report_name ).
-    ELSE.
+    IF exists( program_name ).
       out->write( `Updating abapGit Standalone Exit...` ).
-      insert_report( report_name ).
+      update_report( program_name ).
+    ELSE.
+      out->write( `Creating abapGit Standalone Exit...` ).
+      insert_report( program_name = program_name
+                     program_type = 'I' ).
     ENDIF.
     out->add_to_last( ' done.' ).
 
