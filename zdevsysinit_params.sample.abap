@@ -26,6 +26,7 @@ sslhosts = VALUE #(
 
 " Change current user (DEVELOPER)
 profile = VALUE #(
+  username = sy-uname
   firstname = 'John'
   lastname = 'Doe'
   email = 'someone@example.com'

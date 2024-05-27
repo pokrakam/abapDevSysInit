@@ -14,8 +14,6 @@ PARAMETERS p_agxit TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
 PARAMETERS p_repos TYPE abap_bool AS CHECKBOX DEFAULT abap_false.
 *parameters p_repcnf type abap_bool AS CHECKBOX DEFAULT abap_false. "Todo: Overwrite notification text
 
-CLASS output DEFINITION DEFERRED.
-
 
 *--------------------------------------------------------------------*
 CLASS lcx_error DEFINITION INHERITING FROM cx_static_check.
@@ -24,7 +22,7 @@ ENDCLASS.
 
 
 *--------------------------------------------------------------------*
-"! Singleton wrapper for {@link cl_demo_ouptut}
+"! Log and progress bar
 CLASS output DEFINITION CREATE PUBLIC.
 *--------------------------------------------------------------------*
 
@@ -32,8 +30,11 @@ CLASS output DEFINITION CREATE PUBLIC.
 
     CLASS-METHODS get_instance RETURNING VALUE(result) TYPE REF TO output.
 
+    "! Logs output message and shows it on progress bar
     METHODS write IMPORTING data TYPE any.
+    "! Displays all messages
     METHODS display.
+    "! Appends text to last message
     METHODS add_to_last IMPORTING text TYPE clike.
 
   PROTECTED SECTION.
@@ -2207,9 +2208,14 @@ CLASS user_profile IMPLEMENTATION.
     address-e_mail = profile-email.
     addressx-e_mail = 'X'.
 
+    DATA(username) = COND #(
+      WHEN profile-username IS NOT INITIAL
+      THEN sy-uname
+      ELSE profile-username ).
+
     CALL FUNCTION 'BAPI_USER_CHANGE'
       EXPORTING
-        username  = profile-username
+        username  = username
         defaults  = defaults
         defaultsx = defaultsx
         address   = address
