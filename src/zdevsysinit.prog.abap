@@ -2233,7 +2233,7 @@ CLASS user_profile IMPLEMENTATION.
     addressx-e_mail = 'X'.
 
     DATA(username) = COND #(
-      WHEN profile-username IS NOT INITIAL
+      WHEN profile-username IS INITIAL
       THEN sy-uname
       ELSE profile-username ).
 
