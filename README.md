@@ -19,7 +19,7 @@ the source from [zdevsysinit.prog.abap](https://raw.githubusercontent.com/pokrak
 ## Configuration
 In order to keep the configuration handy for repeated installs, it is done by setting variables in an include that can be stored locally. The only two parameters available for input are the GitHub user and password that may be sensitive info - particularly the password should not be stored as free text.
 
-Create include `zdevsysinit_params` in package `$tmp`, and copy the initialization parameter examples from [zdevsysinit_sample.abap](https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/zdevsysinit_sample.abap) 
+Create include `zdevsysinit_params` in package `$tmp`, and copy the initialization parameter examples from [zdevsysinit_sample.abap](https://raw.githubusercontent.com/pokrakam/abapDevSysInit/main/zdevsysinit_params.sample.abap) 
 and update with appropriate values.
 
 Do not put `zdevsysinit_params` in the same package as this may include personal 
