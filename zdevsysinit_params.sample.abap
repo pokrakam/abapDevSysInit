@@ -15,8 +15,9 @@
 *& Include zdevsysinit_params
 *&---------------------------------------------------------------------*
 
-" Your github (or other git host) user
+" Your GitHub (or other git host) user
 github_user = `mygithubuser`.
+github_token = ``.
 
 " Add SSL certificates for these hosts to the SAP system
 sslhosts = VALUE #(
@@ -30,8 +31,8 @@ profile = VALUE #(
   firstname = 'John'
   lastname = 'Doe'
   email = 'someone@example.com'
-  date_format = user_profile=>c_date_format-dmy_dot
-  decimal_format = user_profile=>c_decimal_format-point
+  date_format = user_profile=>date_format-dmy_dot
+  decimal_format = user_profile=>decimal_format-point
   hide_menu_picture = abap_true
   show_menu_tcodes = abap_true
 ).
