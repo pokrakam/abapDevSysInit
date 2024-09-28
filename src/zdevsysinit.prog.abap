@@ -565,9 +565,6 @@ CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
 
-*    TYPES: BEGIN OF t_source_line,
-*             line TYPE abaptxt255,
-*           END OF t_source_line.
 
     TYPES t_source_lines TYPE STANDARD TABLE OF abaptxt255 WITH EMPTY KEY.
 
