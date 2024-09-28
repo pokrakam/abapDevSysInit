@@ -1384,8 +1384,6 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
     IF sy-subrc <> 0.
       " TODO replace with exception
       CASE sy-subrc.
-*      WHEN lif_icmdef=>icmeok.
-*        MESSAGE s005(icm).
         WHEN lif_icmdef=>icmenotavail.
           MESSAGE i032(icm).
         WHEN OTHERS.
