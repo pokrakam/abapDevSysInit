@@ -1320,7 +1320,7 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
       INSERT VALUE #( lines = REDUCE #( INIT t = VALUE tt_certificate_line( )
                                         FOR <trace_line> IN trace_lines
                                             FROM <certificate_in_trace>-begin_line
-                                            TO   <certificate_in_trace>-end_line
+                                            TO <certificate_in_trace>-end_line
                                         NEXT t = VALUE #( BASE t
                                                           ( CONV #( <trace_line>-text ) ) ) ) )
             INTO TABLE result-certificates.
