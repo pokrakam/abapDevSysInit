@@ -66,7 +66,7 @@
       "skipQuickFix": false,
       "define": true,
       "statics": true,
-      "defaultKey": true,
+      "defaultKey": false,
       "break": true,
       "testSeams": true,
       "describeLines": true,
