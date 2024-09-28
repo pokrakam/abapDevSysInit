@@ -322,6 +322,7 @@ CLASS repo_import DEFINITION CREATE PUBLIC.
              transport_request            TYPE trkorr,
              customizing_request          TYPE trkorr,
              flow                         TYPE abap_bool,
+             exclude_remote_paths         TYPE string_table,
            END OF t_local_settings.
 
     TYPES t_languages TYPE STANDARD TABLE OF laiso WITH DEFAULT KEY.
