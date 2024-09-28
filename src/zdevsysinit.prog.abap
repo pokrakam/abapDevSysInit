@@ -1363,9 +1363,6 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
         icm_error   = 1
         icm_timeout = 2
         OTHERS      = 6.
-    IF sy-subrc <> 0.
-      " TODO
-    ENDIF.
     result = icm_info_data-trace_lvl.
   ENDMETHOD.
 
