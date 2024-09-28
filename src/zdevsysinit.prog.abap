@@ -2045,7 +2045,7 @@ CLASS sslcert IMPLEMENTATION.
     " HTTPS GET
     "===================================
     cl_http_client=>create_by_url( EXPORTING  url    = `https://` && host
-                                   IMPORTING  client = DATA(http_client)
+                                   IMPORTING client = DATA(http_client)
                                    EXCEPTIONS OTHERS = 1 ).
 
     DATA(request) = http_client->request.
