@@ -462,7 +462,6 @@ CLASS repo_import IMPLEMENTATION.
             RECEIVING
               ri_repo         = <if_repo>.
 
-*        repo = <repo>.
 
           out->write( |Repo { name } created| ).
         CATCH cx_static_check INTO error.
