@@ -371,7 +371,7 @@ CLASS repo_import DEFINITION CREATE PUBLIC.
              INCLUDE TYPE t_repo_xml.
     TYPES: END OF t_repo.
 
-    TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
+    TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH DEFAULT KEY.
 
     DATA out TYPE REF TO output.
 
