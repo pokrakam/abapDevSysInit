@@ -322,6 +322,7 @@ CLASS repo_import DEFINITION CREATE PUBLIC.
              transport_request            TYPE trkorr,
              customizing_request          TYPE trkorr,
              flow                         TYPE abap_bool,
+             exclude_remote_paths         TYPE string_table,
            END OF t_local_settings.
 
     TYPES t_languages TYPE STANDARD TABLE OF laiso WITH DEFAULT KEY.
@@ -370,7 +371,7 @@ CLASS repo_import DEFINITION CREATE PUBLIC.
              INCLUDE TYPE t_repo_xml.
     TYPES: END OF t_repo.
 
-    TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH EMPTY KEY.
+    TYPES t_repos TYPE STANDARD TABLE OF t_repo WITH DEFAULT KEY.
 
     DATA out TYPE REF TO output.
 
@@ -461,7 +462,6 @@ CLASS repo_import IMPLEMENTATION.
             RECEIVING
               ri_repo         = <if_repo>.
 
-*        repo = <repo>.
 
           out->write( |Repo { name } created| ).
         CATCH cx_static_check INTO error.
@@ -565,9 +565,6 @@ CLASS abapgit_standalone DEFINITION CREATE PUBLIC.
 
   PROTECTED SECTION.
 
-*    TYPES: BEGIN OF t_source_line,
-*             line TYPE abaptxt255,
-*           END OF t_source_line.
 
     TYPES t_source_lines TYPE STANDARD TABLE OF abaptxt255 WITH EMPTY KEY.
 
@@ -1323,7 +1320,7 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
       INSERT VALUE #( lines = REDUCE #( INIT t = VALUE tt_certificate_line( )
                                         FOR <trace_line> IN trace_lines
                                             FROM <certificate_in_trace>-begin_line
-                                            TO   <certificate_in_trace>-end_line
+                                            TO <certificate_in_trace>-end_line
                                         NEXT t = VALUE #( BASE t
                                                           ( CONV #( <trace_line>-text ) ) ) ) )
             INTO TABLE result-certificates.
@@ -1366,9 +1363,6 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
         icm_error   = 1
         icm_timeout = 2
         OTHERS      = 6.
-    IF sy-subrc <> 0.
-      " TODO
-    ENDIF.
     result = icm_info_data-trace_lvl.
   ENDMETHOD.
 
@@ -1387,8 +1381,6 @@ CLASS zcl_certi_icm_trace IMPLEMENTATION.
     IF sy-subrc <> 0.
       " TODO replace with exception
       CASE sy-subrc.
-*      WHEN lif_icmdef=>icmeok.
-*        MESSAGE s005(icm).
         WHEN lif_icmdef=>icmenotavail.
           MESSAGE i032(icm).
         WHEN OTHERS.
@@ -2053,7 +2045,7 @@ CLASS sslcert IMPLEMENTATION.
     " HTTPS GET
     "===================================
     cl_http_client=>create_by_url( EXPORTING  url    = `https://` && host
-                                   IMPORTING  client = DATA(http_client)
+                                   IMPORTING client  = DATA(http_client)
                                    EXCEPTIONS OTHERS = 1 ).
 
     DATA(request) = http_client->request.
